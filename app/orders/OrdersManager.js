@@ -3,10 +3,8 @@
 import { Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import RecentOrdersTable from "../components/RecentOrdersTable";
+import { apiFetch } from "../lib/api";
 import OrderCreationDropdown from "./OrderCreationDropdown";
-
-const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
 function orderMatchesQuery(order, query) {
   if (!query) return true;
@@ -33,81 +31,52 @@ function mergeByOrderId(currentOrders, incomingOrder) {
   ));
 }
 
-function getStoredSession() {
-  try {
-    return JSON.parse(localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey) || "null");
-  } catch {
-    return null;
-  }
-}
-
-export default function OrdersManager({ initialOrders }) {
-  const [tableOrders, setTableOrders] = useState([...initialOrders].reverse());
+export default function OrdersManager() {
+  const [tableOrders, setTableOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
-  const [session, setSession] = useState(null);
   const filteredOrders = tableOrders.filter((order) => orderMatchesQuery(order, query.trim()));
 
   useEffect(() => {
-    setSession(getStoredSession());
-  }, []);
-
-  useEffect(() => {
-    if (!session?.token) return;
+    let cancelled = false;
 
     async function loadOrders() {
       try {
-        const response = await fetch(`${apiBaseUrl}/orders`, {
-          headers: {
-            "Accept": "application/json",
-            "Authorization": `${session.tokenType || "Bearer"} ${session.token}`
-          },
-          cache: "no-store"
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          setMessage(data.message || "Could not load backend orders.");
-          return;
-        }
-
-        setTableOrders(data.orders || []);
-      } catch {
-        setMessage("Cannot reach the order API. Showing local sample orders for now.");
+        const data = await apiFetch("/orders");
+        if (!cancelled) setTableOrders(data.orders || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load orders.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadOrders();
-  }, [session]);
+    return () => { cancelled = true; };
+  }, []);
 
   function addOrder(order) {
     setTableOrders((currentOrders) => mergeByOrderId(currentOrders, order));
   }
 
   async function updateOrderStatus(order, status) {
-    if (!session?.token || !order.databaseId) return;
+    if (!order.databaseId) {
+      setMessage("This order has no database record and cannot be updated.");
+      return;
+    }
 
     try {
-      const response = await fetch(`${apiBaseUrl}/orders/${order.databaseId}/status`, {
+      const data = await apiFetch(`/orders/${order.databaseId}/status`, {
         method: "PATCH",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-          "Authorization": `${session.tokenType || "Bearer"} ${session.token}`
-        },
-        body: JSON.stringify({ status })
+        body: { status }
       });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setMessage(data.message || "Order status could not be updated.");
-        return;
-      }
-
-      setTableOrders((currentOrders) => currentOrders.map((item) => item.databaseId === data.order.databaseId ? data.order : item));
+      setTableOrders((currentOrders) => currentOrders.map((item) => (
+        item.databaseId === data.order.databaseId ? data.order : item
+      )));
       setMessage(`${data.order.id} is now ${data.order.status}.`);
-    } catch {
-      setMessage("Cannot reach the order API. Try again when the backend is running.");
+    } catch (error) {
+      setMessage(error.message || "Order status could not be updated.");
     }
   }
 
@@ -119,7 +88,11 @@ export default function OrdersManager({ initialOrders }) {
         <div className="section-header product-table-header">
           <div>
             <h2>Order Table</h2>
-            <p>{filteredOrders.length} of {tableOrders.length} order{tableOrders.length === 1 ? "" : "s"}</p>
+            <p>
+              {loading
+                ? "Loading orders..."
+                : `${filteredOrders.length} of ${tableOrders.length} order${tableOrders.length === 1 ? "" : "s"}`}
+            </p>
           </div>
 
           <label className="product-search">

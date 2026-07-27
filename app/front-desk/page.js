@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ClipboardList, History, Printer, ScanLine, Store } from "lucide-react";
-import { products } from "../data";
 import FrontDeskProducts from "./FrontDeskProducts";
 
 export default function FrontDeskPage() {
@@ -47,7 +46,7 @@ export default function FrontDeskPage() {
         </Link>
       </div>
 
-      <FrontDeskProducts initialProducts={products} />
+      <FrontDeskProducts />
     </div>
   );
 }

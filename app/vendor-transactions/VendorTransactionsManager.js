@@ -1,9 +1,10 @@
 "use client";
 
 import { Banknote, Boxes, CalendarDays, FileImage, PenLine, Plus, Save, Search, Upload, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
 const emptyTransaction = {
   vendorId: "",
@@ -45,12 +46,38 @@ function getPaymentStatusClass(status) {
   return "status-pending";
 }
 
-export default function VendorTransactionsManager({ initialTransactions, vendors }) {
-  const [transactions, setTransactions] = useState(initialTransactions);
+export default function VendorTransactionsManager() {
+  const [transactions, setTransactions] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formTransaction, setFormTransaction] = useState(emptyTransaction);
   const [query, setQuery] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        const [transactionData, vendorData] = await Promise.all([
+          apiFetch("/vendor-transactions"),
+          apiFetch("/vendors")
+        ]);
+        if (cancelled) return;
+        setTransactions(transactionData.transactions || []);
+        setVendors(vendorData.vendors || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load vendor transactions.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredTransactions = transactions.filter((transaction) => {
     const matchesVendor = selectedVendor === "All" || String(transaction.vendorId) === selectedVendor;
@@ -90,52 +117,54 @@ export default function VendorTransactionsManager({ initialTransactions, vendors
     updateTransactionField("receiptSnapshot", file ? file.name : "");
   }
 
-  function addTransaction(event) {
+  async function addTransaction(event) {
     event.preventDefault();
-    const vendor = vendors.find((item) => String(item.id) === formTransaction.vendorId);
-    const quantity = Number(formTransaction.quantity || 0);
-    const unitCost = Number(formTransaction.unitCost || 0);
-    const totalCost = quantity * unitCost;
-    const paymentAmount = formTransaction.paymentStatus === "Paid"
-      ? totalCost
-      : formTransaction.paymentStatus === "Unpaid"
-        ? 0
-        : Number(formTransaction.paymentAmount || 0);
+    const form = event.currentTarget;
+    setSaving(true);
 
-    const transaction = {
-      id: `VTX-${String(Date.now()).slice(-6)}`,
-      vendorId: vendor.id,
-      vendorName: vendor.name,
-      productName: formTransaction.productName.trim(),
-      sku: formTransaction.sku.trim(),
-      quantity,
-      unitCost,
-      paymentAmount,
-      paymentStatus: formTransaction.paymentStatus,
-      paymentMethod: formTransaction.paymentMethod.trim() || (formTransaction.paymentStatus === "Unpaid" ? "Pending" : "Bank Transfer"),
-      receiptSnapshot: formTransaction.receiptSnapshot,
-      vendorSignature: formTransaction.vendorSignature.trim(),
-      date: formTransaction.date ? new Date(`${formTransaction.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-    };
+    try {
+      const data = await apiFetch("/vendor-transactions", {
+        method: "POST",
+        body: {
+          vendorId: Number(formTransaction.vendorId),
+          productName: formTransaction.productName.trim(),
+          sku: formTransaction.sku.trim() || null,
+          quantity: Number(formTransaction.quantity || 0),
+          unitCost: Number(formTransaction.unitCost || 0),
+          paymentAmount: Number(formTransaction.paymentAmount || 0),
+          paymentStatus: formTransaction.paymentStatus,
+          paymentMethod: formTransaction.paymentMethod.trim() || null,
+          receiptSnapshot: formTransaction.receiptSnapshot || null,
+          vendorSignature: formTransaction.vendorSignature.trim() || null,
+          date: formTransaction.date || null
+        }
+      });
 
-    setTransactions((currentTransactions) => [transaction, ...currentTransactions]);
-    setFormTransaction(emptyTransaction);
-    setMessage(`${transaction.id} has been added for ${transaction.vendorName}.`);
-    event.currentTarget.reset();
+      setTransactions((currentTransactions) => [data.transaction, ...currentTransactions]);
+      setFormTransaction(emptyTransaction);
+      setMessage(`${data.transaction.id} has been added for ${data.transaction.vendorName}.`);
+      form.reset();
+    } catch (error) {
+      setMessage(error.message || "Transaction could not be saved.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function updatePaymentStatus(transactionId, status) {
-    setTransactions((currentTransactions) => currentTransactions.map((transaction) => {
-      if (transaction.id !== transactionId) return transaction;
+  async function updatePaymentStatus(transaction, status) {
+    if (!transaction.databaseId) return;
 
-      const totalCost = transaction.quantity * transaction.unitCost;
-      return {
-        ...transaction,
-        paymentStatus: status,
-        paymentAmount: status === "Paid" ? totalCost : 0,
-        paymentMethod: status === "Paid" && transaction.paymentMethod === "Pending" ? "Bank Transfer" : transaction.paymentMethod
-      };
-    }));
+    try {
+      const data = await apiFetch(`/vendor-transactions/${transaction.databaseId}/status`, {
+        method: "PATCH",
+        body: { paymentStatus: status }
+      });
+      setTransactions((currentTransactions) => currentTransactions.map((item) => (
+        item.databaseId === data.transaction.databaseId ? data.transaction : item
+      )));
+    } catch (error) {
+      setMessage(error.message || "Payment status could not be updated.");
+    }
   }
 
   return (
@@ -278,7 +307,7 @@ export default function VendorTransactionsManager({ initialTransactions, vendors
               setFormTransaction(emptyTransaction);
               setMessage("");
             }}>Clear</button>
-            <button className="btn-gold" type="submit"><Save /> Save Transaction</button>
+            <button className="btn-gold" type="submit" disabled={saving}><Save /> {saving ? "Saving..." : "Save Transaction"}</button>
           </div>
         </form>
       </section>
@@ -313,7 +342,7 @@ export default function VendorTransactionsManager({ initialTransactions, vendors
         <div className="section-header product-table-header">
           <div>
             <h2>Transaction Table</h2>
-            <p>{filteredTransactions.length} of {transactions.length} transaction{transactions.length === 1 ? "" : "s"}</p>
+            <p>{loading ? "Loading transactions..." : `${filteredTransactions.length} of ${transactions.length} transaction${transactions.length === 1 ? "" : "s"}`}</p>
           </div>
 
           <div className="vendor-transaction-controls">
@@ -349,7 +378,7 @@ export default function VendorTransactionsManager({ initialTransactions, vendors
           columns={["Transaction", "Vendor", "Product", "SKU", "Qty", "Unit Cost", "Total Cost", "Payment", "Status", "Method", "Receipt", "Signature", "Date", "Actions"]}
           rows={filteredTransactions}
           rowKey={(transaction) => transaction.id}
-          emptyMessage="No vendor transactions match your filters."
+          emptyMessage={loading ? "Loading transactions..." : "No vendor transactions match your filters."}
           tableClassName="product-data-table"
           renderRow={(transaction) => {
             const totalCost = transaction.quantity * transaction.unitCost;
@@ -371,8 +400,8 @@ export default function VendorTransactionsManager({ initialTransactions, vendors
                 <td><span className="date-cell"><CalendarDays /> {transaction.date}</span></td>
                 <td>
                   <div className="transaction-action-buttons">
-                    <button type="button" onClick={() => updatePaymentStatus(transaction.id, "Paid")}>Paid</button>
-                    <button type="button" onClick={() => updatePaymentStatus(transaction.id, "Unpaid")}>Not Paid</button>
+                    <button type="button" onClick={() => updatePaymentStatus(transaction, "Paid")}>Paid</button>
+                    <button type="button" onClick={() => updatePaymentStatus(transaction, "Unpaid")}>Not Paid</button>
                   </div>
                 </td>
               </>

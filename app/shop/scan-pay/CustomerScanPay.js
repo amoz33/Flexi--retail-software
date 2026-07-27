@@ -5,19 +5,10 @@ import { ImageIcon, Plus, ReceiptText, ScanLine, Search, ShoppingCart, X } from 
 import { useEffect, useState } from "react";
 import DataTable from "../../components/DataTable";
 import { formatNaira } from "../../data";
+import { apiFetch } from "../../lib/api";
 
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
 const scanPayCartStorageKey = "retail-scan-pay-cart";
 const receiptStorageKey = "retail-last-receipt";
-
-function normalizeProduct(product) {
-  return { ...product, frontDeskVisible: product.frontDeskVisible !== false };
-}
-
-function normalizeProducts(products) {
-  return products.map(normalizeProduct);
-}
 
 function makeCartKey(product) {
   return `${product.sku}-${product.id}`;
@@ -60,8 +51,9 @@ function getProductImage(product) {
   return /^(data:image\/|https?:\/\/|\/)/i.test(image) ? image : "";
 }
 
-export default function CustomerScanPay({ initialProducts }) {
-  const [products, setProducts] = useState(normalizeProducts(initialProducts));
+export default function CustomerScanPay() {
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [cartItems, setCartItems] = useState([]);
   const [scanCode, setScanCode] = useState("");
   const [query, setQuery] = useState("");
@@ -74,38 +66,33 @@ export default function CustomerScanPay({ initialProducts }) {
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   useEffect(() => {
-    function loadProducts() {
-      const savedProducts = localStorage.getItem(productStorageKey);
-      if (!savedProducts) {
-        const normalizedProducts = normalizeProducts(initialProducts);
-        localStorage.setItem(productStorageKey, JSON.stringify(normalizedProducts));
-        setProducts(normalizedProducts);
-        return;
-      }
+    let cancelled = false;
 
+    async function loadProducts() {
       try {
-        setProducts(normalizeProducts(JSON.parse(savedProducts)));
-      } catch {
-        localStorage.removeItem(productStorageKey);
-        setProducts(normalizeProducts(initialProducts));
+        const data = await apiFetch("/products");
+        if (!cancelled) setProducts(data.products || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoadingProducts(false);
       }
     }
 
     function loadCart() {
-      const savedCart = localStorage.getItem(scanPayCartStorageKey);
-      setCartItems(savedCart ? JSON.parse(savedCart) : []);
-      setHasReceipt(Boolean(localStorage.getItem(receiptStorageKey)));
+      try {
+        const savedCart = localStorage.getItem(scanPayCartStorageKey);
+        setCartItems(savedCart ? JSON.parse(savedCart) : []);
+        setHasReceipt(Boolean(localStorage.getItem(receiptStorageKey)));
+      } catch {
+        localStorage.removeItem(scanPayCartStorageKey);
+      }
     }
 
     loadProducts();
     loadCart();
-    window.addEventListener("storage", loadProducts);
-    window.addEventListener(productUpdateEvent, loadProducts);
-    return () => {
-      window.removeEventListener("storage", loadProducts);
-      window.removeEventListener(productUpdateEvent, loadProducts);
-    };
-  }, [initialProducts]);
+    return () => { cancelled = true; };
+  }, []);
 
   function saveCart(nextItems) {
     localStorage.setItem(scanPayCartStorageKey, JSON.stringify(nextItems));
@@ -240,7 +227,7 @@ export default function CustomerScanPay({ initialProducts }) {
         <div className="section-header product-table-header">
           <div>
             <h2>Available Items</h2>
-            <p>{filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} customers can scan or buy</p>
+            <p>{loadingProducts ? "Loading products..." : `${filteredProducts.length} product${filteredProducts.length === 1 ? "" : "s"} customers can scan or buy`}</p>
           </div>
         </div>
 

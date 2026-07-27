@@ -1,5 +1,4 @@
-import { MessageSquareText } from "lucide-react";
-import { customers } from "../data";
+import { Users } from "lucide-react";
 import CustomersManager from "./CustomersManager";
 
 export default function CustomersPage() {
@@ -7,12 +6,12 @@ export default function CustomersPage() {
     <>
       <div className="top-bar">
         <div className="page-title">
-          <h1><MessageSquareText /> Customers</h1>
-          <p>Keep customer contact information and send customer messages from one place.</p>
+          <h1><Users /> Customers</h1>
+          <p>View customer records, segments, and purchase activity.</p>
         </div>
       </div>
 
-      <CustomersManager initialCustomers={customers} />
+      <CustomersManager />
     </>
   );
 }

@@ -11,13 +11,27 @@ import {
   Tooltip
 } from "chart.js";
 import { Bar, Line } from "react-chartjs-2";
-import { calcMonthlyIncome, products } from "../data";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 
 const productColors = ["#C9A020", "#2563eb", "#10b981", "#db2777", "#7c3aed", "#ea580c"];
 
-function getMonthlySales(product) {
+export const chartMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function monthlyIncomeFromOrders(orders = []) {
+  const income = new Array(12).fill(0);
+  orders.forEach((order) => {
+    if (order.status === "Delivered") {
+      const monthIdx = Number(order.monthIdx);
+      if (Number.isInteger(monthIdx) && monthIdx >= 0 && monthIdx < 12) {
+        income[monthIdx] += Number(order.total || 0);
+      }
+    }
+  });
+  return { months: chartMonths, income };
+}
+
+export function getMonthlySales(product) {
   if (Array.isArray(product.monthlySales) && product.monthlySales.length === 12) {
     return product.monthlySales;
   }
@@ -28,13 +42,12 @@ function getMonthlySales(product) {
   return Array.from({ length: 12 }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
-export function MonthlyIncomeChart() {
-  const { months, income } = calcMonthlyIncome();
+export function MonthlyIncomeChart({ months = chartMonths, income = new Array(12).fill(0) }) {
   const average = income.reduce((sum, value) => sum + value, 0) / income.length;
   const best = Math.max(...income);
   const colors = income.map((value) => {
-    if (value === best) return "#C9A020";
-    if (value >= average) return "#10b981";
+    if (value === best && best > 0) return "#C9A020";
+    if (value >= average && value > 0) return "#10b981";
     return "#ef4444";
   });
 
@@ -59,14 +72,13 @@ export function MonthlyIncomeChart() {
   );
 }
 
-export function ProductPerformanceChart() {
-  const sorted = [...products].sort((a, b) => b.soldCount - a.soldCount);
-  const { months } = calcMonthlyIncome();
+export function ProductPerformanceChart({ products = [] }) {
+  const sorted = [...products].sort((a, b) => Number(b.soldCount || 0) - Number(a.soldCount || 0)).slice(0, 6);
 
   return (
     <Line
       data={{
-        labels: months,
+        labels: chartMonths,
         datasets: sorted.map((product, index) => ({
           label: product.name,
           data: getMonthlySales(product),

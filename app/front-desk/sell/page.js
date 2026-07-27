@@ -1,5 +1,4 @@
 import { ScanLine } from "lucide-react";
-import { customers, products, staff } from "../../data";
 import FrontDeskSale from "./FrontDeskSale";
 
 export default function FrontDeskSellPage() {
@@ -12,7 +11,7 @@ export default function FrontDeskSellPage() {
         </div>
       </div>
 
-      <FrontDeskSale initialProducts={products} customers={customers} staff={staff} />
+      <FrontDeskSale />
     </div>
   );
 }

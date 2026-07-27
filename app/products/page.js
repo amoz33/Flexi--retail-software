@@ -1,5 +1,4 @@
 import { Boxes } from "lucide-react";
-import { products } from "../data";
 import ProductsManager from "./ProductsManager";
 
 export default function ProductsPage() {
@@ -12,7 +11,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <ProductsManager initialProducts={products} />
+      <ProductsManager />
     </>
   );
 }

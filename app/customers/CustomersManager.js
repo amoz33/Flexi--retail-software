@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useEffect } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
 function customerMatchesQuery(customer, query) {
   if (!query) return true;
@@ -23,19 +24,9 @@ function customerMatchesQuery(customer, query) {
   return searchableText.includes(query.toLowerCase());
 }
 
-const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
-
-function getStoredSession() {
-  try {
-    return JSON.parse(localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey) || "null");
-  } catch {
-    return null;
-  }
-}
-
-export default function CustomersManager({ initialCustomers }) {
-  const [customers, setCustomers] = useState(initialCustomers);
+export default function CustomersManager() {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState("All");
   const [messageChannel, setMessageChannel] = useState("SMS");
   const [messageBody, setMessageBody] = useState("");
@@ -50,32 +41,21 @@ export default function CustomersManager({ initialCustomers }) {
   }, [customers, selectedCustomerId]);
 
   useEffect(() => {
-    const session = getStoredSession();
-    if (!session?.token) return;
+    let cancelled = false;
 
     async function loadCustomers() {
       try {
-        const response = await fetch(`${apiBaseUrl}/customers`, {
-          headers: {
-            "Accept": "application/json",
-            "Authorization": `${session.tokenType || "Bearer"} ${session.token}`
-          },
-          cache: "no-store"
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          setNotice(data.message || "Could not load customers from the backend.");
-          return;
-        }
-
-        setCustomers(data.customers || []);
-      } catch {
-        setNotice("Cannot reach the customer API. Showing local sample customers for now.");
+        const data = await apiFetch("/customers");
+        if (!cancelled) setCustomers(data.customers || []);
+      } catch (error) {
+        if (!cancelled) setNotice(error.message || "Could not load customers.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadCustomers();
+    return () => { cancelled = true; };
   }, []);
 
   function sendCustomerMessage(event) {
@@ -168,7 +148,7 @@ export default function CustomersManager({ initialCustomers }) {
         <div className="section-header product-table-header">
           <div>
             <h2>Customer Table</h2>
-            <p>{filteredCustomers.length} of {customers.length} customer{customers.length === 1 ? "" : "s"}</p>
+            <p>{loading ? "Loading customers..." : `${filteredCustomers.length} of ${customers.length} customer${customers.length === 1 ? "" : "s"}`}</p>
           </div>
 
           <label className="product-search">
@@ -192,7 +172,7 @@ export default function CustomersManager({ initialCustomers }) {
           columns={["Name", "Phone", "Email", "Address", "Segment", "Last Purchase", "Total Spent", "Status"]}
           rows={filteredCustomers}
           rowKey={(customer) => customer.id}
-          emptyMessage="No customers match your search."
+          emptyMessage={loading ? "Loading customers..." : "No customers match your search."}
           tableClassName="product-data-table"
           renderRow={(customer) => (
             <>

@@ -1,5 +1,4 @@
 import { ShoppingBag } from "lucide-react";
-import { products } from "../data";
 import CustomerShop from "./CustomerShop";
 
 export default function ShopPage() {
@@ -12,7 +11,7 @@ export default function ShopPage() {
         </div>
       </div>
 
-      <CustomerShop initialProducts={products} />
+      <CustomerShop />
     </>
   );
 }

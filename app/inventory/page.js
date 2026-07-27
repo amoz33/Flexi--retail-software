@@ -1,5 +1,4 @@
 import { Archive } from "lucide-react";
-import { equipmentInventory } from "../data";
 import EquipmentInventoryManager from "./EquipmentInventoryManager";
 
 export default function InventoryPage() {
@@ -12,7 +11,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <EquipmentInventoryManager initialEquipment={equipmentInventory} />
+      <EquipmentInventoryManager />
     </>
   );
 }

@@ -1,5 +1,4 @@
 import { Handshake } from "lucide-react";
-import { vendors } from "../data";
 import VendorsManager from "./VendorsManager";
 
 export default function VendorsPage() {
@@ -12,7 +11,7 @@ export default function VendorsPage() {
         </div>
       </div>
 
-      <VendorsManager initialVendors={vendors} />
+      <VendorsManager />
     </>
   );
 }

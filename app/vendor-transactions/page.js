@@ -1,5 +1,4 @@
 import { HandCoins } from "lucide-react";
-import { vendorTransactions, vendors } from "../data";
 import VendorTransactionsManager from "./VendorTransactionsManager";
 
 export default function VendorTransactionsPage() {
@@ -12,7 +11,7 @@ export default function VendorTransactionsPage() {
         </div>
       </div>
 
-      <VendorTransactionsManager initialTransactions={vendorTransactions} vendors={vendors} />
+      <VendorTransactionsManager />
     </>
   );
 }

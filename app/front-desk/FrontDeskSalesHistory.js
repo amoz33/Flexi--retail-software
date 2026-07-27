@@ -4,32 +4,30 @@ import { ChevronDown, History } from "lucide-react";
 import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
-
-const receiptHistoryStorageKey = "retail-receipt-history";
-const receiptHistoryUpdateEvent = "retail-receipt-history-updated";
+import { apiFetch } from "../lib/api";
 
 export default function FrontDeskSalesHistory() {
   const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [cashierFilter, setCashierFilter] = useState("All");
   const [openSaleId, setOpenSaleId] = useState(null);
 
   useEffect(() => {
-    function loadSales() {
+    let cancelled = false;
+
+    async function loadSales() {
       try {
-        setSales(JSON.parse(localStorage.getItem(receiptHistoryStorageKey) || "[]"));
+        const data = await apiFetch("/sales");
+        if (!cancelled) setSales(data.sales || []);
       } catch {
-        localStorage.removeItem(receiptHistoryStorageKey);
-        setSales([]);
+        if (!cancelled) setSales([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadSales();
-    window.addEventListener("storage", loadSales);
-    window.addEventListener(receiptHistoryUpdateEvent, loadSales);
-    return () => {
-      window.removeEventListener("storage", loadSales);
-      window.removeEventListener(receiptHistoryUpdateEvent, loadSales);
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const cashiers = ["All", ...Array.from(new Set(sales.map((sale) => sale.cashier || "Unknown Cashier")))];
@@ -44,7 +42,7 @@ export default function FrontDeskSalesHistory() {
       <div className="section-header product-table-header">
         <div>
           <h2><History /> What Was Sold</h2>
-          <p>{filteredSales.length} sale{filteredSales.length === 1 ? "" : "s"} · {formatNaira(totalValue)} total</p>
+          <p>{loading ? "Loading sales..." : `${filteredSales.length} sale${filteredSales.length === 1 ? "" : "s"} · ${formatNaira(totalValue)} total`}</p>
         </div>
         <label className="field-group receipt-cashier-filter">
           <span>Cashier</span>
@@ -61,7 +59,7 @@ export default function FrontDeskSalesHistory() {
         columns={["Receipt", "Cashier", "Customer", "Products", "Units", "Payment", "Total", "Date", "Details"]}
         rows={filteredSales}
         rowKey={(sale, index) => `${sale.id}-${index}`}
-        emptyMessage="No front desk sales have been recorded yet."
+        emptyMessage={loading ? "Loading sales..." : "No front desk sales have been recorded yet."}
         tableClassName="product-data-table front-desk-history-table"
         renderRow={(sale) => (
           <>
@@ -91,7 +89,7 @@ export default function FrontDeskSalesHistory() {
         <div className="front-desk-history-dropdown">
           <h3>Items in {openSale.id}</h3>
           {openSale.items?.map((item) => (
-            <div className="front-desk-history-item" key={item.cartKey || `${item.sku}-${item.name}`}>
+            <div className="front-desk-history-item" key={item.cartKey || `${item.id || item.sku}-${item.name}`}>
               <div>
                 <strong>{item.name}</strong>
                 <span>{item.sku || "No SKU"}</span>

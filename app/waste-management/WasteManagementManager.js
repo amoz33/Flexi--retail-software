@@ -3,8 +3,7 @@
 import { ClipboardList, Recycle, Save, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
-
-const wasteStorageKey = "retail-waste-register";
+import { apiFetch } from "../lib/api";
 
 const emptyWaste = {
   itemName: "",
@@ -15,53 +14,60 @@ const emptyWaste = {
   note: ""
 };
 
-function normalizeWaste(item) {
-  return {
-    ...item,
-    quantity: Math.max(1, Number(item.quantity || 1)),
-    recordedAt: item.recordedAt || new Date().toLocaleString()
-  };
-}
-
 export default function WasteManagementManager() {
   const [wasteRecords, setWasteRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formWaste, setFormWaste] = useState(emptyWaste);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const savedWaste = localStorage.getItem(wasteStorageKey);
-    if (!savedWaste) return;
+    let cancelled = false;
 
-    try {
-      setWasteRecords(JSON.parse(savedWaste).map(normalizeWaste));
-    } catch {
-      localStorage.removeItem(wasteStorageKey);
+    async function loadWaste() {
+      try {
+        const data = await apiFetch("/waste");
+        if (!cancelled) setWasteRecords(data.records || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load the waste register.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
+
+    loadWaste();
+    return () => { cancelled = true; };
   }, []);
 
   function updateField(field, value) {
     setFormWaste((item) => ({ ...item, [field]: value }));
   }
 
-  function saveWasteRecords(nextRecords) {
-    const normalizedRecords = nextRecords.map(normalizeWaste);
-    localStorage.setItem(wasteStorageKey, JSON.stringify(normalizedRecords));
-    setWasteRecords(normalizedRecords);
-  }
-
-  function addWasteRecord(event) {
+  async function addWasteRecord(event) {
     event.preventDefault();
-    const record = normalizeWaste({
-      ...formWaste,
-      id: Date.now(),
-      itemName: formWaste.itemName.trim(),
-      note: formWaste.note.trim(),
-      recordedAt: new Date().toLocaleString()
-    });
+    setSaving(true);
 
-    saveWasteRecords([record, ...wasteRecords]);
-    setFormWaste(emptyWaste);
-    setMessage(`${record.itemName} has been recorded in the waste register.`);
+    try {
+      const data = await apiFetch("/waste", {
+        method: "POST",
+        body: {
+          itemName: formWaste.itemName.trim(),
+          itemType: formWaste.itemType,
+          reason: formWaste.reason,
+          quantity: Math.max(1, Number(formWaste.quantity || 1)),
+          action: formWaste.action,
+          note: formWaste.note.trim() || null
+        }
+      });
+
+      setWasteRecords((currentRecords) => [data.record, ...currentRecords]);
+      setFormWaste(emptyWaste);
+      setMessage(`${data.record.itemName} has been recorded in the waste register.`);
+    } catch (error) {
+      setMessage(error.message || "Waste record could not be saved.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -127,7 +133,7 @@ export default function WasteManagementManager() {
           </div>
           <div className="form-actions">
             <button className="btn-outline" type="button" onClick={() => setFormWaste(emptyWaste)}>Clear</button>
-            <button className="btn-gold" type="submit"><Save /> Save Waste Record</button>
+            <button className="btn-gold" type="submit" disabled={saving}><Save /> {saving ? "Saving..." : "Save Waste Record"}</button>
           </div>
         </form>
       </section>
@@ -136,14 +142,14 @@ export default function WasteManagementManager() {
         <div className="section-header product-table-header">
           <div>
             <h2><ClipboardList /> Waste Register</h2>
-            <p>{wasteRecords.length} permanent waste record{wasteRecords.length === 1 ? "" : "s"}</p>
+            <p>{loading ? "Loading waste register..." : `${wasteRecords.length} permanent waste record${wasteRecords.length === 1 ? "" : "s"}`}</p>
           </div>
         </div>
         <DataTable
           columns={["Item", "Type", "Reason", "Qty", "Action", "Recorded", "Note"]}
           rows={wasteRecords}
           rowKey={(record) => record.id}
-          emptyMessage="No waste has been recorded."
+          emptyMessage={loading ? "Loading waste register..." : "No waste has been recorded."}
           tableClassName="product-data-table waste-register-table"
           renderRow={(record) => (
             <>

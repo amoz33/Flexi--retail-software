@@ -3,18 +3,19 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\SaleController;
 use App\Http\Controllers\Api\StaffController;
+use App\Http\Controllers\Api\VendorController;
+use App\Http\Controllers\Api\VendorTransactionController;
+use App\Http\Controllers\Api\WasteController;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| is assigned the "api" middleware group. Enjoy building your API!
-|
 */
 
 Route::prefix('auth')->group(function () {
@@ -34,6 +35,14 @@ Route::middleware('auth.bearer')->prefix('staff')->group(function () {
     Route::post('/{staff}/reset-password', [StaffController::class, 'resetPassword']);
 });
 
+Route::middleware('auth.bearer')->prefix('products')->group(function () {
+    Route::get('/', [ProductController::class, 'index']);
+    Route::post('/', [ProductController::class, 'store']);
+    Route::post('/import', [ProductController::class, 'import']);
+    Route::put('/{product}', [ProductController::class, 'update']);
+    Route::delete('/{product}', [ProductController::class, 'destroy']);
+});
+
 Route::post('/orders', [OrderController::class, 'store']);
 Route::get('/orders/customer', [OrderController::class, 'customerOrders']);
 Route::patch('/orders/{order}/delivered', [OrderController::class, 'confirmDelivered']);
@@ -42,4 +51,35 @@ Route::middleware('auth.bearer')->group(function () {
     Route::get('/customers', [CustomerController::class, 'index']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+});
+
+Route::middleware('auth.bearer')->prefix('sales')->group(function () {
+    Route::get('/', [SaleController::class, 'index']);
+    Route::get('/{sale}', [SaleController::class, 'show']);
+    Route::post('/', [SaleController::class, 'store']);
+});
+
+Route::middleware('auth.bearer')->prefix('vendors')->group(function () {
+    Route::get('/', [VendorController::class, 'index']);
+    Route::post('/', [VendorController::class, 'store']);
+    Route::delete('/{vendor}', [VendorController::class, 'destroy']);
+});
+
+Route::middleware('auth.bearer')->prefix('vendor-transactions')->group(function () {
+    Route::get('/', [VendorTransactionController::class, 'index']);
+    Route::post('/', [VendorTransactionController::class, 'store']);
+    Route::patch('/{transaction}/status', [VendorTransactionController::class, 'updateStatus']);
+});
+
+Route::middleware('auth.bearer')->prefix('equipment')->group(function () {
+    Route::get('/', [EquipmentController::class, 'index']);
+    Route::post('/', [EquipmentController::class, 'store']);
+    Route::put('/{equipment}', [EquipmentController::class, 'update']);
+    Route::post('/{equipment}/waste', [EquipmentController::class, 'moveToWaste']);
+    Route::delete('/{equipment}', [EquipmentController::class, 'destroy']);
+});
+
+Route::middleware('auth.bearer')->prefix('waste')->group(function () {
+    Route::get('/', [WasteController::class, 'index']);
+    Route::post('/', [WasteController::class, 'store']);
 });

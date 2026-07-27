@@ -6,16 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../../components/DataTable";
 import { formatNaira } from "../../../data";
 import { createPaymentReference } from "../../../lib/paystack";
+import { apiFetch } from "../../../lib/api";
 
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
 const scanPayCartStorageKey = "retail-scan-pay-cart";
 const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
 const receiptStorageKey = "retail-last-receipt";
-const receiptHistoryStorageKey = "retail-receipt-history";
-const receiptHistoryUpdateEvent = "retail-receipt-history-updated";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
 export default function ScanPayCart() {
   const [cartItems, setCartItems] = useState([]);
@@ -42,17 +38,28 @@ export default function ScanPayCart() {
   }, [selectedItems]);
 
   useEffect(() => {
-    const savedCart = localStorage.getItem(scanPayCartStorageKey);
-    const savedProducts = localStorage.getItem(productStorageKey);
+    let cancelled = false;
 
     try {
+      const savedCart = localStorage.getItem(scanPayCartStorageKey);
       const parsedCart = savedCart ? JSON.parse(savedCart) : [];
       setCartItems(parsedCart);
       setSelectedCartKeys(parsedCart.map((item) => item.cartKey));
-      setProducts(savedProducts ? JSON.parse(savedProducts) : []);
     } catch {
       localStorage.removeItem(scanPayCartStorageKey);
     }
+
+    async function loadProducts() {
+      try {
+        const data = await apiFetch("/products");
+        if (!cancelled) setProducts(data.products || []);
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    }
+
+    loadProducts();
+    return () => { cancelled = true; };
   }, []);
 
   function saveCart(nextItems) {
@@ -140,14 +147,6 @@ export default function ScanPayCart() {
     };
 
     localStorage.setItem(receiptStorageKey, JSON.stringify(receipt));
-    let receiptHistory = [];
-    try {
-      receiptHistory = JSON.parse(localStorage.getItem(receiptHistoryStorageKey) || "[]");
-    } catch {
-      receiptHistory = [];
-    }
-    localStorage.setItem(receiptHistoryStorageKey, JSON.stringify([receipt, ...receiptHistory]));
-    window.dispatchEvent(new Event(receiptHistoryUpdateEvent));
   }
 
   function rememberCustomerLookup(order) {
@@ -158,13 +157,9 @@ export default function ScanPayCart() {
   }
 
   async function saveBackendOrder(order) {
-    const response = await fetch(`${apiBaseUrl}/orders`, {
+    const data = await apiFetch("/orders", {
       method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
+      body: {
         source: "Scan & Pay",
         customer: {
           name: order.customerName,
@@ -180,19 +175,14 @@ export default function ScanPayCart() {
         subtotal: order.subtotal,
         delivery_fee: order.deliveryFee,
         total: order.total
-      })
+      }
     });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.message || "Payment order could not be saved.");
-    }
 
     return data.order;
   }
 
   function saveProductsAfterPayment(items) {
-    const nextProducts = products.map((product) => {
+    setProducts((currentProducts) => currentProducts.map((product) => {
       const cartItem = items.find((item) => item.id === product.id && item.sku === product.sku);
       if (!cartItem) return product;
 
@@ -201,11 +191,7 @@ export default function ScanPayCart() {
         stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity),
         soldCount: Number(product.soldCount || 0) + cartItem.quantity
       };
-    });
-
-    localStorage.setItem(productStorageKey, JSON.stringify(nextProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    setProducts(nextProducts);
+    }));
   }
 
   async function payForCart(event) {

@@ -1,5 +1,4 @@
 import { ScanLine } from "lucide-react";
-import { products } from "../../data";
 import CustomerScanPay from "./CustomerScanPay";
 
 export default function ScanPayPage() {
@@ -12,7 +11,7 @@ export default function ScanPayPage() {
         </div>
       </div>
 
-      <CustomerScanPay initialProducts={products} />
+      <CustomerScanPay />
     </>
   );
 }

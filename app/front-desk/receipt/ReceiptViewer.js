@@ -5,35 +5,42 @@ import { Eye, Printer, ScanLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import DataTable from "../../components/DataTable";
 import { formatNaira } from "../../data";
+import { apiFetch } from "../../lib/api";
 
 const receiptStorageKey = "retail-last-receipt";
-const receiptHistoryStorageKey = "retail-receipt-history";
 
 export default function ReceiptViewer() {
   const [receipt, setReceipt] = useState(null);
   const [receiptHistory, setReceiptHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [cashierFilter, setCashierFilter] = useState("All");
 
   useEffect(() => {
-    const savedReceipt = localStorage.getItem(receiptStorageKey);
-    const savedHistory = localStorage.getItem(receiptHistoryStorageKey);
+    let cancelled = false;
 
     try {
-      const latestReceipt = savedReceipt ? JSON.parse(savedReceipt) : null;
-      const history = savedHistory ? JSON.parse(savedHistory) : [];
-      const normalizedHistory = history.length
-        ? history
-        : latestReceipt ? [latestReceipt] : [];
-
-      setReceipt(latestReceipt || normalizedHistory[0] || null);
-      setReceiptHistory(normalizedHistory);
-      if (!history.length && normalizedHistory.length) {
-        localStorage.setItem(receiptHistoryStorageKey, JSON.stringify(normalizedHistory));
-      }
+      const savedReceipt = localStorage.getItem(receiptStorageKey);
+      if (savedReceipt) setReceipt(JSON.parse(savedReceipt));
     } catch {
       localStorage.removeItem(receiptStorageKey);
-      localStorage.removeItem(receiptHistoryStorageKey);
     }
+
+    async function loadSales() {
+      try {
+        const data = await apiFetch("/sales");
+        if (cancelled) return;
+        const sales = data.sales || [];
+        setReceiptHistory(sales);
+        setReceipt((current) => current || sales[0] || null);
+      } catch {
+        /* history stays empty; latest receipt still shows */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadSales();
+    return () => { cancelled = true; };
   }, []);
 
   const cashiers = ["All", ...Array.from(new Set(receiptHistory.map((item) => item.cashier || "Unknown Cashier")))];
@@ -46,7 +53,7 @@ export default function ReceiptViewer() {
     localStorage.setItem(receiptStorageKey, JSON.stringify(selectedReceipt));
   }
 
-  if (!receipt && !receiptHistory.length) {
+  if (!loading && !receipt && !receiptHistory.length) {
     return (
       <section className="section-card receipt-empty receipt-no-print">
         <div className="empty-table-cell">No completed sale receipt yet.</div>
@@ -61,7 +68,7 @@ export default function ReceiptViewer() {
         <div className="section-header product-table-header">
           <div>
             <h2>Cashier Sales History</h2>
-            <p>{filteredHistory.length} sale{filteredHistory.length === 1 ? "" : "s"} shown</p>
+            <p>{loading ? "Loading sales..." : `${filteredHistory.length} sale${filteredHistory.length === 1 ? "" : "s"} shown`}</p>
           </div>
           <label className="field-group receipt-cashier-filter">
             <span>Cashier</span>
@@ -75,7 +82,7 @@ export default function ReceiptViewer() {
           columns={["Receipt", "Cashier", "Customer", "Items", "Payment", "Total", "Date", "View"]}
           rows={filteredHistory}
           rowKey={(item, index) => `${item.id}-${index}`}
-          emptyMessage="No sales recorded for this cashier."
+          emptyMessage={loading ? "Loading sales..." : "No sales recorded for this cashier."}
           tableClassName="product-data-table receipt-history-table"
           renderRow={(item) => (
             <>
@@ -120,8 +127,8 @@ export default function ReceiptViewer() {
         <DataTable
           baseClassName="receipt-table datatable"
           columns={["Item", "Qty", "Price", "Total"]}
-          rows={receipt.items}
-          rowKey={(item) => item.cartKey}
+          rows={receipt.items || []}
+          rowKey={(item, index) => item.cartKey || `${item.id}-${index}`}
           emptyMessage="No receipt items to show."
           renderRow={(item) => (
             <>
