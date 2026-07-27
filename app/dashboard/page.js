@@ -5,11 +5,9 @@ import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, Flame, LineChart, Pa
 import { useEffect, useState } from "react";
 import StatCard from "../components/StatCard";
 import RecentOrdersTable from "../components/RecentOrdersTable";
-import { calcMonthlyIncome, formatNaira, orders, products, staff } from "../data";
-
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
-const wasteStorageKey = "retail-waste-register";
+import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
+import { chartMonths, monthlyIncomeFromOrders } from "../components/Charts";
 
 function getExpiryState(product) {
   if (!product.expiryDate) return null;
@@ -27,90 +25,98 @@ function getExpiryState(product) {
 }
 
 export default function DashboardPage() {
-  const [liveProducts, setLiveProducts] = useState(products);
+  const [liveProducts, setLiveProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    function loadProducts() {
-      const savedProducts = localStorage.getItem(productStorageKey);
-      if (!savedProducts) {
-        setLiveProducts(products);
-        return;
-      }
+    let cancelled = false;
 
-      try {
-        setLiveProducts(JSON.parse(savedProducts));
-      } catch {
-        localStorage.removeItem(productStorageKey);
-        setLiveProducts(products);
-      }
+    async function loadData() {
+      const load = async (path, apply) => {
+        try {
+          const data = await apiFetch(path);
+          if (!cancelled) apply(data);
+        } catch {
+          /* individual sections fail independently */
+        }
+      };
+
+      await Promise.all([
+        load("/products", (data) => setLiveProducts(data.products || [])),
+        load("/orders", (data) => setOrders(data.orders || [])),
+        load("/sales", (data) => setSales(data.sales || [])),
+        load("/staff", (data) => setStaff(data.staff || data.users || []))
+      ]);
+
+      if (!cancelled) setLoading(false);
     }
 
-    loadProducts();
-    window.addEventListener("storage", loadProducts);
-    window.addEventListener(productUpdateEvent, loadProducts);
-    return () => {
-      window.removeEventListener("storage", loadProducts);
-      window.removeEventListener(productUpdateEvent, loadProducts);
-    };
+    loadData();
+    return () => { cancelled = true; };
   }, []);
 
-  function saveProducts(nextProducts) {
-    localStorage.setItem(productStorageKey, JSON.stringify(nextProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    setLiveProducts(nextProducts);
-  }
-
-  function saveWasteRecord(product, expiry) {
-    let currentWaste = [];
-    try {
-      currentWaste = JSON.parse(localStorage.getItem(wasteStorageKey) || "[]");
-    } catch {
-      currentWaste = [];
-    }
-    const wasteRecord = {
-      id: Date.now(),
-      itemName: product.name,
-      itemType: "Product",
-      reason: expiry.status === "Expired" ? "Expired" : "Unsafe",
-      quantity: Math.max(1, Number(product.stock || 1)),
-      action: "Quarantine",
-      note: `Moved from dashboard expiry alert. SKU: ${product.sku}.`,
-      recordedAt: new Date().toLocaleString()
-    };
-
-    localStorage.setItem(wasteStorageKey, JSON.stringify([wasteRecord, ...currentWaste]));
-    return wasteRecord;
-  }
-
-  function moveProductToWaste(product, expiry) {
-    const confirmed = window.confirm(`Move ${product.name} to the waste register and remove it from inventory?`);
+  async function moveProductToWaste(product, expiry) {
+    const confirmed = window.confirm(`Move ${product.name} to the waste register and clear its stock?`);
     if (!confirmed) return;
 
-    const wasteRecord = saveWasteRecord(product, expiry);
-    saveProducts(liveProducts.filter((item) => item.id !== product.id || item.sku !== product.sku));
-    setMessage(`${wasteRecord.itemName} has been moved to waste.`);
+    try {
+      await apiFetch("/waste", {
+        method: "POST",
+        body: {
+          itemName: product.name,
+          itemType: "Product",
+          reason: expiry.status === "Expired" ? "Expired" : "Unsafe",
+          quantity: Math.max(1, Number(product.stock || 1)),
+          action: "Quarantine",
+          note: `Moved from dashboard expiry alert. SKU: ${product.sku}.`,
+          productId: Number(product.stock || 0) > 0 ? product.id : null
+        }
+      });
+
+      setLiveProducts((current) => current.map((item) => (
+        item.id === product.id ? { ...item, stock: 0 } : item
+      )));
+      setMessage(`${product.name} has been moved to waste.`);
+    } catch (error) {
+      setMessage(error.message || "Could not move the product to waste.");
+    }
   }
 
-  const totalRevenue = orders.filter((order) => order.status === "Delivered").reduce((sum, order) => sum + order.total, 0);
+  const deliveredOrders = orders.filter((order) => order.status === "Delivered");
+  const orderRevenue = deliveredOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const salesRevenue = sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+  const totalRevenue = orderRevenue + salesRevenue;
   const totalOrders = orders.length;
-  const delivered = orders.filter((order) => order.status === "Delivered").length;
+  const delivered = deliveredOrders.length;
   const unitsSold = liveProducts.reduce((sum, product) => sum + Number(product.soldCount || 0), 0);
   const expiryAlerts = liveProducts
     .map((product) => ({ product, expiry: getExpiryState(product) }))
     .filter((item) => item.expiry)
     .sort((a, b) => a.expiry.expiryDate - b.expiry.expiryDate);
-  const bestProduct = [...liveProducts].sort((a, b) => Number(b.soldCount || 0) - Number(a.soldCount || 0))[0] || products[0];
-  const topStaff = [...staff].sort((a, b) => b.sales - a.sales)[0];
-  const monthlyIncome = calcMonthlyIncome();
-  const peakMonth = monthlyIncome.months[monthlyIncome.income.indexOf(Math.max(...monthlyIncome.income))];
-  const recentOrders = [...orders].reverse().slice(0, 5);
+  const bestProduct = [...liveProducts].sort((a, b) => Number(b.soldCount || 0) - Number(a.soldCount || 0))[0] || null;
+
+  const staffSales = staff.map((person) => ({
+    ...person,
+    salesTotal: sales
+      .filter((sale) => (sale.cashier || "").toLowerCase() === (person.name || "").toLowerCase())
+      .reduce((sum, sale) => sum + Number(sale.total || 0), 0)
+  }));
+  const topStaff = [...staffSales].sort((a, b) => b.salesTotal - a.salesTotal)[0] || null;
+
+  const monthlyIncome = monthlyIncomeFromOrders(orders);
+  const bestMonthValue = Math.max(...monthlyIncome.income);
+  const peakMonth = bestMonthValue > 0 ? chartMonths[monthlyIncome.income.indexOf(bestMonthValue)] : "-";
+  const recentOrders = orders.slice(0, 5);
 
   const stats = [
-    { icon: <TrendingUp />, label: "Total Revenue", value: formatNaira(totalRevenue), trend: "+18.3%" },
-    { icon: <CheckCircle2 />, label: "Success Rate", value: `${Math.round((delivered / totalOrders) * 100)}%`, trend: `${delivered}/${totalOrders} delivered` },
-    { icon: <Flame />, label: "Top Product", value: bestProduct.name.split(" ")[0], trend: `${bestProduct.soldCount} units` },
-    { icon: <Star />, label: "MVP Staff", value: topStaff.name, trend: formatNaira(topStaff.sales) },
+    { icon: <TrendingUp />, label: "Total Revenue", value: formatNaira(totalRevenue), trend: "Orders + cashier sales" },
+    { icon: <CheckCircle2 />, label: "Success Rate", value: totalOrders ? `${Math.round((delivered / totalOrders) * 100)}%` : "0%", trend: `${delivered}/${totalOrders} delivered` },
+    { icon: <Flame />, label: "Top Product", value: bestProduct ? bestProduct.name.split(" ")[0] : "-", trend: bestProduct ? `${bestProduct.soldCount || 0} units` : "No sales yet" },
+    { icon: <Star />, label: "MVP Staff", value: topStaff ? topStaff.name : "-", trend: topStaff ? formatNaira(topStaff.salesTotal) : "No cashier sales yet" },
     { icon: <PackageCheck />, label: "Units Moved", value: unitsSold.toLocaleString(), trend: "All-time sales" },
     {
       icon: <AlertTriangle />,
@@ -119,7 +125,7 @@ export default function DashboardPage() {
       trend: expiryAlerts.length ? "Action required now" : "No products within 3 months",
       alert: expiryAlerts.length > 0
     },
-    { icon: <LineChart />, label: "Avg Order", value: formatNaira(Math.round(totalRevenue / delivered)), trend: "Premium basket" },
+    { icon: <LineChart />, label: "Avg Order", value: delivered ? formatNaira(Math.round(orderRevenue / delivered)) : formatNaira(0), trend: "Delivered orders" },
     { icon: <CalendarDays />, label: "Peak Month", value: peakMonth, trend: "Highest revenue" }
   ];
 
@@ -128,7 +134,7 @@ export default function DashboardPage() {
       <div className="top-bar">
         <div className="page-title">
           <h1><LineChart /> Flexi Command</h1>
-          <p>Retail intelligence live pulse</p>
+          <p>{loading ? "Loading retail intelligence..." : "Retail intelligence live pulse"}</p>
         </div>
         <div className="role-badge">Flexi Access</div>
       </div>
@@ -180,7 +186,9 @@ export default function DashboardPage() {
 
       <div className="insight-text">
         <LineChart />
-        <strong>Flexi Insight:</strong> Revenue surged 18% this quarter. {bestProduct.name} is the star product. Staff performance is at an all-time high.
+        <strong>Flexi Insight:</strong> {bestProduct
+          ? `${bestProduct.name} is the current top seller with ${bestProduct.soldCount || 0} units moved.`
+          : "Sales insights will appear here as transactions are recorded."}
       </div>
     </>
   );

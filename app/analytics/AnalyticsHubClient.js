@@ -1,48 +1,65 @@
 "use client";
 
 import { BarChart3, ChartPie, Hash, LineChart, Trophy } from "lucide-react";
-import { useState } from "react";
-import { MonthlyIncomeChart, ProductPerformanceChart } from "../components/Charts";
-import { calcMonthlyIncome, formatNaira, products } from "../data";
-
-function getMonthlySales(product) {
-  if (Array.isArray(product.monthlySales) && product.monthlySales.length === 12) {
-    return product.monthlySales;
-  }
-
-  const total = Math.max(0, Number(product.soldCount || 0));
-  const base = Math.floor(total / 12);
-  const remainder = total % 12;
-  return Array.from({ length: 12 }, (_, index) => base + (index < remainder ? 1 : 0));
-}
+import { useEffect, useState } from "react";
+import { MonthlyIncomeChart, ProductPerformanceChart, chartMonths, getMonthlySales, monthlyIncomeFromOrders } from "../components/Charts";
+import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
 function formatUnits(value) {
-  return value.toLocaleString();
+  return Number(value || 0).toLocaleString();
 }
 
 export default function AnalyticsHubClient() {
   const [viewMode, setViewMode] = useState("graph");
-  const { months, income } = calcMonthlyIncome();
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        const [productData, orderData] = await Promise.all([
+          apiFetch("/products"),
+          apiFetch("/orders")
+        ]);
+        if (cancelled) return;
+        setProducts(productData.products || []);
+        setOrders(orderData.orders || []);
+      } catch {
+        /* empty analytics until data loads */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => { cancelled = true; };
+  }, []);
+
+  const { months, income } = monthlyIncomeFromOrders(orders);
   const total = income.reduce((sum, value) => sum + value, 0);
-  const average = total / income.length;
+  const average = income.length ? total / income.length : 0;
   const bestIncome = Math.max(...income);
   const lowestIncome = Math.min(...income);
   const bestMonthIndex = income.indexOf(bestIncome);
   const lowestMonthIndex = income.indexOf(lowestIncome);
   const activeMonths = income.filter((value) => value > 0).length;
-  const topProduct = [...products].sort((a, b) => b.soldCount - a.soldCount)[0];
+  const topProduct = [...products].sort((a, b) => Number(b.soldCount || 0) - Number(a.soldCount || 0))[0] || null;
   const rankedProducts = [...products]
     .map((product) => {
       const monthlySales = getMonthlySales(product);
       const bestSales = Math.max(...monthlySales);
       return {
         ...product,
-        averageMonthlySales: product.soldCount / monthlySales.length,
+        averageMonthlySales: Number(product.soldCount || 0) / monthlySales.length,
         bestSales,
-        bestSalesMonth: months[monthlySales.indexOf(bestSales)]
+        bestSalesMonth: chartMonths[monthlySales.indexOf(bestSales)]
       };
     })
-    .sort((a, b) => b.soldCount - a.soldCount);
+    .sort((a, b) => Number(b.soldCount || 0) - Number(a.soldCount || 0));
   const isGraphView = viewMode === "graph";
 
   return (
@@ -80,7 +97,7 @@ export default function AnalyticsHubClient() {
         </div>
         {isGraphView ? (
           <div className="chart-container analytics-chart-container">
-            <div className="chart-box analytics-chart-box"><MonthlyIncomeChart /></div>
+            <div className="chart-box analytics-chart-box"><MonthlyIncomeChart months={months} income={income} /></div>
           </div>
         ) : (
           <div className="analytics-number-view">
@@ -114,7 +131,7 @@ export default function AnalyticsHubClient() {
                 <tbody>
                   {months.map((month, index) => {
                     const value = income[index];
-                    const note = value === bestIncome
+                    const note = value === bestIncome && value > 0
                       ? "Highest income month"
                       : value === 0
                         ? "No delivered income recorded"
@@ -133,7 +150,7 @@ export default function AnalyticsHubClient() {
                 </tbody>
               </table>
             </div>
-            <div className="insight-text"><Trophy /> Income was active in {activeMonths} of 12 months, with {months[bestMonthIndex]} producing the strongest result.</div>
+            <div className="insight-text"><Trophy /> Income was active in {activeMonths} of 12 months{bestIncome > 0 ? `, with ${months[bestMonthIndex]} producing the strongest result.` : "."}</div>
           </div>
         )}
       </section>
@@ -144,7 +161,7 @@ export default function AnalyticsHubClient() {
         </div>
         {isGraphView ? (
           <div className="chart-container analytics-chart-container">
-            <div className="chart-box analytics-chart-box"><ProductPerformanceChart /></div>
+            <div className="chart-box analytics-chart-box"><ProductPerformanceChart products={products} /></div>
           </div>
         ) : (
           <div className="analytics-number-view">
@@ -167,7 +184,7 @@ export default function AnalyticsHubClient() {
                       <td>#{index + 1}</td>
                       <td>{product.name}</td>
                       <td>{formatUnits(product.soldCount)}</td>
-                      <td>{formatNaira(product.revenue)}</td>
+                      <td>{formatNaira(product.revenue || 0)}</td>
                       <td>{product.averageMonthlySales.toFixed(1)}</td>
                       <td>{product.bestSalesMonth} ({formatUnits(product.bestSales)} units)</td>
                       <td>{formatUnits(product.stock)}</td>
@@ -178,7 +195,7 @@ export default function AnalyticsHubClient() {
             </div>
           </div>
         )}
-        <div className="insight-text"><Trophy /> Top performer: {topProduct.name} | Compare every product across all 12 months.</div>
+        <div className="insight-text"><Trophy /> {loading ? "Loading product analytics..." : topProduct ? `Top performer: ${topProduct.name} | Compare every product across all 12 months.` : "Product analytics will appear as sales are recorded."}</div>
       </section>
     </>
   );

@@ -4,23 +4,9 @@ import { Minus, PackageCheck, Search, ShoppingCart, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
 const receiptStorageKey = "retail-last-receipt";
-const receiptHistoryStorageKey = "retail-receipt-history";
-const receiptHistoryUpdateEvent = "retail-receipt-history-updated";
-
-function normalizeProduct(product) {
-  return {
-    ...product,
-    frontDeskVisible: product.frontDeskVisible !== false
-  };
-}
-
-function normalizeProducts(products) {
-  return products.map(normalizeProduct);
-}
 
 function productMatchesQuery(product, query) {
   if (!query) return true;
@@ -39,45 +25,34 @@ function productMatchesQuery(product, query) {
   return searchableText.includes(query.toLowerCase());
 }
 
-export default function FrontDeskProducts({ initialProducts }) {
-  const [products, setProducts] = useState(normalizeProducts(initialProducts));
+export default function FrontDeskProducts() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [saleQuantities, setSaleQuantities] = useState({});
   const [message, setMessage] = useState("");
+  const [sellingKey, setSellingKey] = useState(null);
+
   const frontDeskProducts = products.filter((product) => product.frontDeskVisible !== false);
   const filteredProducts = frontDeskProducts.filter((product) => productMatchesQuery(product, query.trim()));
 
   useEffect(() => {
-    function loadProducts() {
-      const savedProducts = localStorage.getItem(productStorageKey);
-      if (!savedProducts) {
-        setProducts(normalizeProducts(initialProducts));
-        return;
-      }
+    let cancelled = false;
 
+    async function loadProducts() {
       try {
-        setProducts(normalizeProducts(JSON.parse(savedProducts)));
-      } catch {
-        localStorage.removeItem(productStorageKey);
-        setProducts(normalizeProducts(initialProducts));
+        const data = await apiFetch("/products");
+        if (!cancelled) setProducts(data.products || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadProducts();
-    window.addEventListener("storage", loadProducts);
-    window.addEventListener(productUpdateEvent, loadProducts);
-    return () => {
-      window.removeEventListener("storage", loadProducts);
-      window.removeEventListener(productUpdateEvent, loadProducts);
-    };
-  }, [initialProducts]);
-
-  function saveProducts(nextProducts) {
-    const normalizedProducts = normalizeProducts(nextProducts);
-    localStorage.setItem(productStorageKey, JSON.stringify(normalizedProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    return normalizedProducts;
-  }
+    return () => { cancelled = true; };
+  }, []);
 
   function updateSaleQuantity(productKey, value) {
     setSaleQuantities((currentQuantities) => ({
@@ -86,7 +61,7 @@ export default function FrontDeskProducts({ initialProducts }) {
     }));
   }
 
-  function sellProduct(product) {
+  async function sellProduct(product) {
     const productKey = `${product.sku}-${product.id}`;
     const quantity = Math.max(1, Number(saleQuantities[productKey] || 1));
     const currentStock = Number(product.stock || 0);
@@ -101,43 +76,37 @@ export default function FrontDeskProducts({ initialProducts }) {
       return;
     }
 
-    setProducts((currentProducts) => saveProducts(currentProducts.map((currentProduct) => {
-      if (currentProduct.id !== product.id || currentProduct.sku !== product.sku) return currentProduct;
-      return { ...currentProduct, stock: currentStock - quantity, soldCount: Number(currentProduct.soldCount || 0) + quantity };
-    })));
-
-    const receipt = {
-      id: `QSL-${String(Date.now()).slice(-6)}`,
-      customerName: "Walk-in Customer",
-      customerPhone: "",
-      paymentMethod: "Quick Sale",
-      items: [{
-        cartKey: productKey,
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-        price: Number(product.price || 0),
-        quantity
-      }],
-      subtotal: Number(product.price || 0) * quantity,
-      discount: 0,
-      total: Number(product.price || 0) * quantity,
-      cashier: "Front Desk Quick Sale",
-      createdAt: new Date().toLocaleString()
-    };
-
-    let receiptHistory = [];
+    setSellingKey(productKey);
     try {
-      receiptHistory = JSON.parse(localStorage.getItem(receiptHistoryStorageKey) || "[]");
-    } catch {
-      receiptHistory = [];
-    }
-    localStorage.setItem(receiptStorageKey, JSON.stringify(receipt));
-    localStorage.setItem(receiptHistoryStorageKey, JSON.stringify([receipt, ...receiptHistory]));
-    window.dispatchEvent(new Event(receiptHistoryUpdateEvent));
+      const data = await apiFetch("/sales", {
+        method: "POST",
+        body: {
+          customer_name: "",
+          customer_phone: null,
+          payment_method: "Cash",
+          discount: 0,
+          items: [{ productId: product.id, quantity }]
+        }
+      });
 
-    setMessage(`${quantity} ${product.name} sold. Inventory stock was reduced and the sale was recorded.`);
-    updateSaleQuantity(productKey, "1");
+      localStorage.setItem(receiptStorageKey, JSON.stringify(data.sale));
+
+      setProducts((currentProducts) => currentProducts.map((item) => {
+        if (item.id !== product.id) return item;
+        return {
+          ...item,
+          stock: Math.max(0, Number(item.stock || 0) - quantity),
+          soldCount: Number(item.soldCount || 0) + quantity
+        };
+      }));
+
+      setMessage(`${quantity} ${product.name} sold. ${data.sale.id} saved and stock reduced.`);
+      updateSaleQuantity(productKey, "1");
+    } catch (error) {
+      setMessage(error.message || "Sale could not be completed.");
+    } finally {
+      setSellingKey(null);
+    }
   }
 
   return (
@@ -145,7 +114,7 @@ export default function FrontDeskProducts({ initialProducts }) {
       <div className="section-header product-table-header">
         <div>
           <h2><PackageCheck /> Products and Prices</h2>
-          <p>{filteredProducts.length} of {frontDeskProducts.length} front desk product{frontDeskProducts.length === 1 ? "" : "s"}</p>
+          <p>{loading ? "Loading products..." : `${filteredProducts.length} of ${frontDeskProducts.length} front desk product${frontDeskProducts.length === 1 ? "" : "s"}`}</p>
         </div>
 
         <label className="product-search">
@@ -171,7 +140,7 @@ export default function FrontDeskProducts({ initialProducts }) {
         columns={["Product", "SKU", "Category", "Expiry Date", "Price", "Stock", "Availability", "Sell"]}
         rows={filteredProducts}
         rowKey={(product) => `${product.sku}-${product.id}`}
-        emptyMessage="No products match your search."
+        emptyMessage={loading ? "Loading products..." : "No products match your search."}
         tableClassName="product-data-table"
         renderRow={(product) => {
           const productKey = `${product.sku}-${product.id}`;
@@ -212,9 +181,9 @@ export default function FrontDeskProducts({ initialProducts }) {
                     className="btn-gold front-desk-sell-button"
                     type="button"
                     onClick={() => sellProduct(product)}
-                    disabled={stock <= 0}
+                    disabled={stock <= 0 || sellingKey === productKey}
                   >
-                    <ShoppingCart /> Sell
+                    <ShoppingCart /> {sellingKey === productKey ? "..." : "Sell"}
                   </button>
                 </div>
               </td>

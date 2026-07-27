@@ -1,26 +1,11 @@
 "use client";
 
-import { Eye, EyeOff, ImageIcon, Recycle, Search, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, ImageIcon, Pencil, Recycle, Search, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 import ProductCreationDropdown from "./ProductCreationDropdown";
-
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
-const wasteStorageKey = "retail-waste-register";
-
-function normalizeProduct(product) {
-  return {
-    ...product,
-    expiryDate: product.expiryDate || "",
-    frontDeskVisible: product.frontDeskVisible !== false
-  };
-}
-
-function normalizeProducts(products) {
-  return products.map(normalizeProduct);
-}
 
 function summarizeAttributes(attributes = []) {
   const validAttributes = attributes.filter((attribute) => attribute.name || attribute.value);
@@ -32,23 +17,6 @@ function summarizeVariants(variants = []) {
   const validVariants = variants.filter((variant) => variant.name || variant.sku);
   if (!validVariants.length) return "None";
   return validVariants.map((variant) => variant.name || variant.sku).join(", ");
-}
-
-function mergeBySku(currentProducts, incomingProducts) {
-  const productsBySku = new Map(currentProducts.map((product) => [product.sku, product]));
-
-  incomingProducts.forEach((product) => {
-    const normalizedProduct = normalizeProduct(product);
-
-    if (productsBySku.has(product.sku)) {
-      productsBySku.set(product.sku, normalizeProduct({ ...productsBySku.get(product.sku), ...normalizedProduct }));
-      return;
-    }
-
-    productsBySku.set(product.sku, normalizedProduct);
-  });
-
-  return Array.from(productsBySku.values());
 }
 
 function productMatchesQuery(product, query) {
@@ -85,88 +53,142 @@ function getProductImage(product) {
   return /^(data:image\/|https?:\/\/|\/)/i.test(image) ? image : "";
 }
 
-export default function ProductsManager({ initialProducts }) {
-  const [tableProducts, setTableProducts] = useState(normalizeProducts(initialProducts));
+export default function ProductsManager() {
+  const [tableProducts, setTableProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const filteredProducts = tableProducts.filter((product) => productMatchesQuery(product, query.trim()));
 
   useEffect(() => {
-    function loadProducts() {
-      const savedProducts = localStorage.getItem(productStorageKey);
-      if (!savedProducts) {
-        setTableProducts(normalizeProducts(initialProducts));
-        return;
-      }
+    let cancelled = false;
 
+    async function loadProducts() {
       try {
-        setTableProducts(normalizeProducts(JSON.parse(savedProducts)));
-      } catch {
-        localStorage.removeItem(productStorageKey);
-        setTableProducts(normalizeProducts(initialProducts));
+        const data = await apiFetch("/products");
+        if (!cancelled) setTableProducts(data.products || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadProducts();
-    window.addEventListener("storage", loadProducts);
-    window.addEventListener(productUpdateEvent, loadProducts);
-    return () => {
-      window.removeEventListener("storage", loadProducts);
-      window.removeEventListener(productUpdateEvent, loadProducts);
-    };
-  }, [initialProducts]);
+    return () => { cancelled = true; };
+  }, []);
 
-  function saveProducts(nextProducts) {
-    const normalizedProducts = normalizeProducts(nextProducts);
-    localStorage.setItem(productStorageKey, JSON.stringify(normalizedProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    return normalizedProducts;
-  }
-
-  function addProduct(product) {
-    setTableProducts((currentProducts) => saveProducts(mergeBySku(currentProducts, [product])));
-  }
-
-  function importProducts(products) {
-    setTableProducts((currentProducts) => saveProducts(mergeBySku(currentProducts, products)));
-  }
-
-  function toggleFrontDeskProduct(productId, productSku) {
-    setTableProducts((currentProducts) => saveProducts(currentProducts.map((product) => {
-      if (product.id !== productId || product.sku !== productSku) return product;
-      return { ...product, frontDeskVisible: product.frontDeskVisible === false };
-    })));
-  }
-
-  function permanentlyDeleteProduct(productId, productSku) {
-    setTableProducts((currentProducts) => saveProducts(currentProducts.filter((product) => (
-      product.id !== productId || product.sku !== productSku
-    ))));
-  }
-
-  function saveWasteRecord(product, quantity) {
-    let currentWaste = [];
+  async function addProduct(product) {
     try {
-      currentWaste = JSON.parse(localStorage.getItem(wasteStorageKey) || "[]");
-    } catch {
-      currentWaste = [];
+      const data = await apiFetch("/products", { method: "POST", body: product });
+      setTableProducts((current) => {
+        const others = current.filter((item) => item.sku !== data.product.sku);
+        return [...others, data.product].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setMessage(`${data.product.name} saved.`);
+    } catch (error) {
+      setMessage(error.message || "Could not save product.");
     }
-    const wasteRecord = {
-      id: Date.now(),
-      itemName: product.name,
-      itemType: "Product",
-      reason: getExpiryClass(product.expiryDate) ? "Expired" : "Damaged",
-      quantity,
-      action: "Quarantine",
-      note: `Moved from inventory. SKU: ${product.sku}. Remaining stock: ${Math.max(0, Number(product.stock || 0) - quantity)}.`,
-      recordedAt: new Date().toLocaleString()
-    };
-
-    localStorage.setItem(wasteStorageKey, JSON.stringify([wasteRecord, ...currentWaste]));
-    return wasteRecord;
   }
 
-  function moveProductToWaste(product) {
+  async function importProducts(products) {
+    try {
+      const data = await apiFetch("/products/import", { method: "POST", body: { products } });
+      const imported = data.products || [];
+      setTableProducts((current) => {
+        const bySku = new Map(current.map((item) => [item.sku, item]));
+        imported.forEach((item) => bySku.set(item.sku, item));
+        return Array.from(bySku.values()).sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setMessage(`${imported.length} product${imported.length === 1 ? "" : "s"} imported.`);
+    } catch (error) {
+      setMessage(error.message || "Could not import products.");
+    }
+  }
+
+  async function toggleFrontDeskProduct(product) {
+    try {
+      const data = await apiFetch(`/products/${product.id}`, {
+        method: "PUT",
+        body: { frontDeskVisible: product.frontDeskVisible === false }
+      });
+      setTableProducts((current) => current.map((item) => (item.id === product.id ? data.product : item)));
+    } catch (error) {
+      setMessage(error.message || "Could not update product.");
+    }
+  }
+
+  async function permanentlyDeleteProduct(product) {
+    if (!window.confirm(`Permanently delete ${product.name}? This cannot be undone.`)) return;
+
+    try {
+      await apiFetch(`/products/${product.id}`, { method: "DELETE" });
+      setTableProducts((current) => current.filter((item) => item.id !== product.id));
+      setMessage(`${product.name} deleted.`);
+    } catch (error) {
+      setMessage(error.message || "Could not delete product.");
+    }
+  }
+
+  function openEditModal(product) {
+    setEditingProduct(product);
+    setEditForm({
+      name: product.name || "",
+      sku: product.sku || "",
+      barcode: product.barcode || "",
+      expiryDate: product.expiryDate || "",
+      description: product.description || "",
+      price: product.price ?? 0,
+      stock: product.stock ?? 0
+    });
+  }
+
+  function closeEditModal() {
+    setEditingProduct(null);
+    setEditForm(null);
+  }
+
+  function updateEditField(field, value) {
+    setEditForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    if (!editingProduct || !editForm) return;
+
+    if (!editForm.name.trim() || !editForm.sku.trim()) {
+      setMessage("Product name and SKU are required.");
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const data = await apiFetch(`/products/${editingProduct.id}`, {
+        method: "PUT",
+        body: {
+          name: editForm.name.trim(),
+          sku: editForm.sku.trim(),
+          barcode: editForm.barcode.trim() || null,
+          expiryDate: editForm.expiryDate || null,
+          description: editForm.description.trim() || null,
+          price: Number(editForm.price) || 0,
+          stock: Math.max(0, Math.round(Number(editForm.stock) || 0))
+        }
+      });
+      setTableProducts((current) => current.map((item) => (item.id === editingProduct.id ? data.product : item)));
+      setMessage(`${data.product.name} updated.`);
+      closeEditModal();
+    } catch (error) {
+      setMessage(error.message || "Could not update product.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function moveProductToWaste(product) {
     const stock = Number(product.stock || 0);
     if (stock <= 0) {
       setMessage(`${product.name} has no stock available to move to waste.`);
@@ -185,12 +207,28 @@ export default function ProductsManager({ initialProducts }) {
       return;
     }
 
-    const wasteRecord = saveWasteRecord(product, quantity);
-    setTableProducts((currentProducts) => saveProducts(currentProducts.map((item) => {
-      if (item.id !== product.id || item.sku !== product.sku) return item;
-      return { ...item, stock: Math.max(0, Number(item.stock || 0) - quantity) };
-    })));
-    setMessage(`${quantity} ${wasteRecord.itemName} item${quantity === 1 ? "" : "s"} moved to waste.`);
+    try {
+      const data = await apiFetch("/waste", {
+        method: "POST",
+        body: {
+          itemName: product.name,
+          itemType: "Product",
+          reason: getExpiryClass(product.expiryDate) ? "Expired" : "Damaged",
+          quantity,
+          action: "Quarantine",
+          note: `Moved from inventory. SKU: ${product.sku}.`,
+          productId: product.id
+        }
+      });
+
+      setTableProducts((current) => current.map((item) => {
+        if (item.id !== product.id) return item;
+        return { ...item, stock: typeof data.productStock === "number" ? data.productStock : Math.max(0, stock - quantity) };
+      }));
+      setMessage(`${quantity} ${product.name} item${quantity === 1 ? "" : "s"} moved to waste.`);
+    } catch (error) {
+      setMessage(error.message || "Could not move stock to waste.");
+    }
   }
 
   return (
@@ -227,7 +265,7 @@ export default function ProductsManager({ initialProducts }) {
           columns={["Name", "SKU", "Barcode", "Expiry Date", "Description", "Images", "Attributes", "Variants", "Price", "Stock", "Front Desk", "Actions"]}
           rows={filteredProducts}
           rowKey={(product) => `${product.sku}-${product.id}`}
-          emptyMessage="No products match your search."
+          emptyMessage={loading ? "Loading products..." : "No products match your search."}
           tableClassName="product-data-table"
           renderRow={(product) => (
             <>
@@ -257,7 +295,15 @@ export default function ProductsManager({ initialProducts }) {
                   <button
                     className="btn-outline product-row-button"
                     type="button"
-                    onClick={() => toggleFrontDeskProduct(product.id, product.sku)}
+                    onClick={() => openEditModal(product)}
+                  >
+                    <Pencil />
+                    Edit
+                  </button>
+                  <button
+                    className="btn-outline product-row-button"
+                    type="button"
+                    onClick={() => toggleFrontDeskProduct(product)}
                   >
                     {product.frontDeskVisible === false ? <Eye /> : <EyeOff />}
                     {product.frontDeskVisible === false ? "Add to Front Desk" : "Remove from Front Desk"}
@@ -273,7 +319,7 @@ export default function ProductsManager({ initialProducts }) {
                   <button
                     className="icon-button"
                     type="button"
-                    onClick={() => permanentlyDeleteProduct(product.id, product.sku)}
+                    onClick={() => permanentlyDeleteProduct(product)}
                     aria-label={`Permanently delete ${product.name}`}
                   >
                     <Trash2 />
@@ -284,6 +330,55 @@ export default function ProductsManager({ initialProducts }) {
           )}
         />
       </section>
+      {/* <!-- Edit Product Modal --> */}
+      {editingProduct && editForm && (
+        <div className="product-edit-overlay" role="dialog" aria-modal="true" aria-label={`Edit ${editingProduct.name}`}>
+          <div className="product-edit-modal section-card">
+            <div className="section-header">
+              <h2>Edit Product</h2>
+              <button className="icon-button" type="button" onClick={closeEditModal} aria-label="Close edit form">
+                <X />
+              </button>
+            </div>
+
+            <form className="product-edit-form" onSubmit={saveEdit}>
+              <label className="field-group">
+                <span>Name</span>
+                <input type="text" value={editForm.name} onChange={(e) => updateEditField("name", e.target.value)} required />
+              </label>
+              <label className="field-group">
+                <span>SKU</span>
+                <input type="text" value={editForm.sku} onChange={(e) => updateEditField("sku", e.target.value)} required />
+              </label>
+              <label className="field-group">
+                <span>Barcode</span>
+                <input type="text" value={editForm.barcode} onChange={(e) => updateEditField("barcode", e.target.value)} />
+              </label>
+              <label className="field-group">
+                <span>Expiry Date</span>
+                <input type="date" value={editForm.expiryDate} onChange={(e) => updateEditField("expiryDate", e.target.value)} />
+              </label>
+              <label className="field-group">
+                <span>Description</span>
+                <textarea rows={3} value={editForm.description} onChange={(e) => updateEditField("description", e.target.value)} />
+              </label>
+              <label className="field-group">
+                <span>Price (₦)</span>
+                <input type="number" min="0" step="0.01" value={editForm.price} onChange={(e) => updateEditField("price", e.target.value)} />
+              </label>
+              <label className="field-group">
+                <span>Stock</span>
+                <input type="number" min="0" step="1" value={editForm.stock} onChange={(e) => updateEditField("stock", e.target.value)} />
+              </label>
+
+              <div className="product-edit-actions">
+                <button className="btn-outline" type="button" onClick={closeEditModal} disabled={savingEdit}>Cancel</button>
+                <button className="btn-gold" type="submit" disabled={savingEdit}>{savingEdit ? "Saving..." : "Save Changes"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

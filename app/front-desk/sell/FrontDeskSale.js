@@ -6,21 +6,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../components/DataTable";
 import { formatNaira } from "../../data";
+import { apiFetch } from "../../lib/api";
 
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
 const receiptStorageKey = "retail-last-receipt";
-const receiptHistoryStorageKey = "retail-receipt-history";
-const receiptHistoryUpdateEvent = "retail-receipt-history-updated";
-const sessionStorageKey = "retail-auth-session";
-
-function normalizeProduct(product) {
-  return { ...product, frontDeskVisible: product.frontDeskVisible !== false };
-}
-
-function normalizeProducts(products) {
-  return products.map(normalizeProduct);
-}
 
 function makeCartKey(product) {
   return `${product.sku}-${product.id}`;
@@ -49,9 +37,11 @@ function parseImportedItems(value) {
   }).filter((item) => item.code);
 }
 
-export default function FrontDeskSale({ initialProducts, customers, staff }) {
+export default function FrontDeskSale() {
   const router = useRouter();
-  const [products, setProducts] = useState(normalizeProducts(initialProducts));
+  const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [cartItems, setCartItems] = useState([]);
   const [scanCode, setScanCode] = useState("");
   const [scanQuantity, setScanQuantity] = useState("1");
@@ -59,9 +49,9 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
-  const [cashier, setCashier] = useState(staff[0]?.name || "Front Desk");
   const [discount, setDiscount] = useState("");
   const [message, setMessage] = useState("");
+  const [checkingOut, setCheckingOut] = useState(false);
 
   const visibleProducts = products.filter((product) => product.frontDeskVisible !== false);
   const productSuggestions = scanCode.trim()
@@ -77,30 +67,30 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
     : [];
 
   useEffect(() => {
-    try {
-      const savedSession = JSON.parse(localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey) || "null");
-      if (savedSession?.name && savedSession.role !== "Admin") {
-        setCashier(savedSession.name);
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        const data = await apiFetch("/products");
+        if (!cancelled) setProducts(data.products || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoadingProducts(false);
       }
-    } catch {
-      setCashier(staff[0]?.name || "Front Desk");
-    }
-  }, [staff]);
 
-  useEffect(() => {
-    const savedProducts = localStorage.getItem(productStorageKey);
-    if (!savedProducts) {
-      setProducts(normalizeProducts(initialProducts));
-      return;
+      try {
+        const data = await apiFetch("/customers");
+        if (!cancelled) setCustomers(data.customers || []);
+      } catch {
+        // Customers list is admin-only; cashiers fall back to manual entry.
+        if (!cancelled) setCustomers([]);
+      }
     }
 
-    try {
-      setProducts(normalizeProducts(JSON.parse(savedProducts)));
-    } catch {
-      localStorage.removeItem(productStorageKey);
-      setProducts(normalizeProducts(initialProducts));
-    }
-  }, [initialProducts]);
+    loadData();
+    return () => { cancelled = true; };
+  }, []);
 
   const totals = useMemo(() => {
     const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -112,13 +102,6 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
       count: cartItems.reduce((sum, item) => sum + item.quantity, 0)
     };
   }, [cartItems, discount]);
-
-  function saveProducts(nextProducts) {
-    const normalizedProducts = normalizeProducts(nextProducts);
-    localStorage.setItem(productStorageKey, JSON.stringify(normalizedProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    return normalizedProducts;
-  }
 
   function addToCart(product, quantity = 1) {
     const stock = Number(product.stock || 0);
@@ -209,48 +192,45 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
     setCustomerPhone(customer?.phone || "");
   }
 
-  function checkout() {
+  async function checkout() {
     if (!cartItems.length) {
       setMessage("Add items before checkout.");
       return;
     }
 
-    const receipt = {
-      id: `RCT-${String(Date.now()).slice(-6)}`,
-      customerName: customerName.trim() || "Walk-in Customer",
-      customerPhone: customerPhone.trim(),
-      paymentMethod,
-      items: cartItems,
-      subtotal: totals.subtotal,
-      discount: totals.discount,
-      total: totals.total,
-      cashier,
-      createdAt: new Date().toLocaleString()
-    };
-
-    setProducts((currentProducts) => saveProducts(currentProducts.map((product) => {
-      const cartItem = cartItems.find((item) => item.id === product.id && item.sku === product.sku);
-      if (!cartItem) return product;
-      return {
-        ...product,
-        stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity),
-        soldCount: Number(product.soldCount || 0) + cartItem.quantity
-      };
-    })));
-
-    localStorage.setItem(receiptStorageKey, JSON.stringify(receipt));
-    let receiptHistory = [];
+    setCheckingOut(true);
     try {
-      receiptHistory = JSON.parse(localStorage.getItem(receiptHistoryStorageKey) || "[]");
-    } catch {
-      receiptHistory = [];
+      const data = await apiFetch("/sales", {
+        method: "POST",
+        body: {
+          customer_name: customerName.trim(),
+          customer_phone: customerPhone.trim() || null,
+          payment_method: paymentMethod,
+          discount: Math.max(0, Number(discount || 0)),
+          items: cartItems.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity
+          }))
+        }
+      });
+
+      localStorage.setItem(receiptStorageKey, JSON.stringify(data.sale));
+
+      setProducts((currentProducts) => currentProducts.map((product) => {
+        const soldItem = data.sale.items.find((item) => item.id === product.id);
+        if (!soldItem) return product;
+        return { ...product, stock: Math.max(0, Number(product.stock || 0) - soldItem.quantity) };
+      }));
+
+      setCartItems([]);
+      setDiscount("");
+      setMessage(`${data.sale.id} paid by ${paymentMethod}. Opening receipt print page.`);
+      router.push("/front-desk/receipt");
+    } catch (error) {
+      setMessage(error.message || "Checkout failed. No stock was deducted.");
+    } finally {
+      setCheckingOut(false);
     }
-    localStorage.setItem(receiptHistoryStorageKey, JSON.stringify([receipt, ...receiptHistory]));
-    window.dispatchEvent(new Event(receiptHistoryUpdateEvent));
-    setCartItems([]);
-    setDiscount("");
-    setMessage(`${receipt.id} paid by ${paymentMethod}. Opening receipt print page.`);
-    router.push("/front-desk/receipt");
   }
 
   return (
@@ -259,7 +239,7 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
         <div className="section-header product-table-header">
           <div>
             <h2><ScanLine /> Scan or Import Items</h2>
-            <p>{visibleProducts.length} cashier-visible product{visibleProducts.length === 1 ? "" : "s"}</p>
+            <p>{loadingProducts ? "Loading products..." : `${visibleProducts.length} cashier-visible product${visibleProducts.length === 1 ? "" : "s"}`}</p>
           </div>
         </div>
 
@@ -335,24 +315,17 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
 
         <div className="cashier-panel">
           <div className="form-grid cashier-customer-grid">
-            <label className="field-group">
-              <span>Cashier</span>
-              <select value={cashier} onChange={(event) => setCashier(event.target.value)}>
-                {!staff.some((person) => person.name === cashier) && <option value={cashier}>{cashier}</option>}
-                {staff.map((person) => (
-                  <option value={person.name} key={person.id}>{person.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field-group">
-              <span>Saved Customer</span>
-              <select onChange={(event) => chooseCustomer(event.target.value)} defaultValue="">
-                <option value="">Walk-in / Manual</option>
-                {customers.map((customer) => (
-                  <option value={customer.id} key={customer.id}>{customer.name}</option>
-                ))}
-              </select>
-            </label>
+            {customers.length > 0 && (
+              <label className="field-group">
+                <span>Saved Customer</span>
+                <select onChange={(event) => chooseCustomer(event.target.value)} defaultValue="">
+                  <option value="">Walk-in / Manual</option>
+                  {customers.map((customer) => (
+                    <option value={customer.id} key={customer.id}>{customer.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="field-group">
               <span>Customer Name</span>
               <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in Customer" />
@@ -416,7 +389,9 @@ export default function FrontDeskSale({ initialProducts, customers, staff }) {
               <div><span>Discount</span><strong>{formatNaira(totals.discount)}</strong></div>
               <div className="cashier-grand-total"><span>Total</span><strong>{formatNaira(totals.total)}</strong></div>
             </div>
-            <button className="btn-gold cashier-checkout-button" type="button" onClick={checkout}><Printer /> Mark Paid & Print Receipt</button>
+            <button className="btn-gold cashier-checkout-button" type="button" onClick={checkout} disabled={checkingOut}>
+              <Printer /> {checkingOut ? "Processing..." : "Mark Paid & Print Receipt"}
+            </button>
           </div>
         </div>
       </section>

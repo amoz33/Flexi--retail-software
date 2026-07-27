@@ -5,10 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import StatCard from "../components/StatCard";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
-const receiptHistoryStorageKey = "retail-receipt-history";
-const receiptHistoryUpdateEvent = "retail-receipt-history-updated";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
 function getStoredSession() {
@@ -55,22 +54,19 @@ export default function StaffRecordsPage() {
   }, []);
 
   useEffect(() => {
-    function loadSales() {
+    let cancelled = false;
+
+    async function loadSales() {
       try {
-        setSales(JSON.parse(localStorage.getItem(receiptHistoryStorageKey) || "[]"));
+        const data = await apiFetch("/sales");
+        if (!cancelled) setSales(data.sales || []);
       } catch {
-        localStorage.removeItem(receiptHistoryStorageKey);
-        setSales([]);
+        if (!cancelled) setSales([]);
       }
     }
 
     loadSales();
-    window.addEventListener("storage", loadSales);
-    window.addEventListener(receiptHistoryUpdateEvent, loadSales);
-    return () => {
-      window.removeEventListener("storage", loadSales);
-      window.removeEventListener(receiptHistoryUpdateEvent, loadSales);
-    };
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {

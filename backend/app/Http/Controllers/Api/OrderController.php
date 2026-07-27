@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\Product;
 use App\Models\RetailOrder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -50,40 +52,65 @@ class OrderController extends Controller
             'total' => ['required', 'numeric', 'min:0'],
         ]);
 
-        $customerData = $data['customer'];
-        $customer = $this->upsertCustomer($customerData, $data['source'] ?? 'Shop Order');
-        $firstItem = $data['items'][0]['name'] ?? 'Order';
+        $order = DB::transaction(function () use ($data) {
+            foreach ($data['items'] as $item) {
+                if (empty($item['sku'])) {
+                    continue;
+                }
 
-        $order = RetailOrder::create([
-            'order_number' => $this->makeOrderNumber($data['source'] ?? ''),
-            'customer_id' => $customer->id,
-            'customer_name' => $customer->name,
-            'phone' => $customer->phone,
-            'email' => $customer->email,
-            'address' => $customerData['address'] ?? $customer->address,
-            'delivery_option' => $data['delivery_option'] ?? 'Home Delivery',
-            'delivery_note' => $data['delivery_note'] ?? null,
-            'payment_method' => $data['payment_method'] ?? null,
-            'payment_status' => $data['payment_status'] ?? 'Pending',
-            'items' => $data['items'],
-            'subtotal' => $data['subtotal'],
-            'delivery_fee' => $data['delivery_fee'] ?? 0,
-            'total' => $data['total'],
-            'status' => 'Pending',
-        ]);
+                $product = Product::where('sku', $item['sku'])->lockForUpdate()->first();
+                if (!$product) {
+                    continue;
+                }
 
-        $customer->forceFill([
-            'address' => $customerData['address'] ?? $customer->address,
-            'last_purchase' => $firstItem,
-            'total_spent' => $customer->total_spent + $order->total,
-            'status' => 'Active',
-        ])->save();
+                if ($product->stock < $item['quantity']) {
+                    abort(response()->json([
+                        'message' => "Insufficient stock for {$product->name}. Only {$product->stock} left.",
+                    ], 422));
+                }
+
+                $product->stock -= $item['quantity'];
+                $product->sold_count += $item['quantity'];
+                $product->save();
+            }
+
+            $customerData = $data['customer'];
+            $customer = $this->upsertCustomer($customerData, $data['source'] ?? 'Shop Order');
+            $firstItem = $data['items'][0]['name'] ?? 'Order';
+
+            $order = RetailOrder::create([
+                'order_number' => $this->makeOrderNumber($data['source'] ?? ''),
+                'customer_id' => $customer->id,
+                'customer_name' => $customer->name,
+                'phone' => $customer->phone,
+                'email' => $customer->email,
+                'address' => $customerData['address'] ?? $customer->address,
+                'delivery_option' => $data['delivery_option'] ?? 'Home Delivery',
+                'delivery_note' => $data['delivery_note'] ?? null,
+                'payment_method' => $data['payment_method'] ?? null,
+                'payment_status' => $data['payment_status'] ?? 'Pending',
+                'items' => $data['items'],
+                'subtotal' => $data['subtotal'],
+                'delivery_fee' => $data['delivery_fee'] ?? 0,
+                'total' => $data['total'],
+                'status' => 'Pending',
+            ]);
+
+            $customer->forceFill([
+                'address' => $customerData['address'] ?? $customer->address,
+                'last_purchase' => $firstItem,
+                'total_spent' => $customer->total_spent + $order->total,
+                'status' => 'Active',
+            ])->save();
+
+            return $order;
+        });
 
         return response()->json([
             'order' => $this->orderPayload($order->fresh()),
             'customer' => [
-                'id' => $customer->id,
-                'name' => $customer->name,
+                'id' => $order->customer_id,
+                'name' => $order->customer_name,
             ],
         ], 201);
     }

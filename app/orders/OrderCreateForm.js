@@ -1,92 +1,115 @@
 "use client";
 
 import { Save } from "lucide-react";
-
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function parseOrderDate(value) {
-  if (!value) return { date: "Today", month: "Jan", monthIdx: 0 };
-
-  const orderDate = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(orderDate.getTime())) return { date: value, month: "Jan", monthIdx: 0 };
-
-  const monthIdx = orderDate.getMonth();
-  return {
-    date: `${months[monthIdx]} ${orderDate.getDate()}`,
-    month: months[monthIdx],
-    monthIdx
-  };
-}
-
-function defaultProgress(status) {
-  if (status === "Delivered") return 100;
-  if (status === "Shipped") return 65;
-  return 20;
-}
+import { useState } from "react";
+import { apiFetch } from "../lib/api";
 
 export default function OrderCreateForm({ onCreateOrder }) {
-  function handleSubmit(event) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
     event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
-    const formData = new FormData(event.currentTarget);
-    const status = formData.get("status");
-    const progressValue = Number(formData.get("progress"));
-    const parsedDate = parseOrderDate(formData.get("date"));
-    const id = formData.get("id")?.trim() || `ORD-${String(Date.now()).slice(-6)}`;
+    const itemName = formData.get("itemName")?.trim();
+    const total = Number(formData.get("total") || 0);
 
-    onCreateOrder({
-      id,
-      customer: formData.get("customer")?.trim(),
-      total: Number(formData.get("total") || 0),
-      status,
-      progress: Number.isFinite(progressValue) && progressValue >= 0 ? progressValue : defaultProgress(status),
-      ...parsedDate
-    });
+    if (!itemName || total <= 0) {
+      setError("Enter what was sold and a valid amount.");
+      return;
+    }
 
-    event.currentTarget.reset();
+    setSaving(true);
+    setError("");
+
+    try {
+      const data = await apiFetch("/orders", {
+        method: "POST",
+        body: {
+          source: "Manual Entry",
+          customer: {
+            name: formData.get("customer")?.trim(),
+            phone: formData.get("phone")?.trim() || null,
+            email: formData.get("email")?.trim() || null,
+            address: formData.get("address")?.trim() || null
+          },
+          delivery_option: formData.get("deliveryOption") || "Pickup",
+          payment_method: formData.get("paymentMethod") || null,
+          payment_status: "Paid",
+          items: [{ name: itemName, sku: null, price: total, quantity: 1 }],
+          subtotal: total,
+          delivery_fee: 0,
+          total
+        }
+      });
+
+      onCreateOrder(data.order);
+      form.reset();
+    } catch (err) {
+      setError(err.message || "Could not save the order.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <form className="product-form order-form" onSubmit={handleSubmit}>
+      {error && <div className="front-desk-message">{error}</div>}
+
       <div className="form-grid order-form-grid">
         <label className="field-group">
-          <span>Order ID</span>
-          <input type="text" name="id" placeholder="ORD-013" />
-        </label>
-
-        <label className="field-group">
-          <span>Customer</span>
+          <span>Customer Name</span>
           <input type="text" name="customer" placeholder="Customer name" required />
         </label>
 
         <label className="field-group">
-          <span>Price</span>
-          <input type="number" name="total" min="0" placeholder="250000" required />
+          <span>Phone</span>
+          <input type="text" name="phone" placeholder="0803..." />
         </label>
 
         <label className="field-group">
-          <span>Status</span>
-          <select name="status" defaultValue="Pending">
-            <option>Pending</option>
-            <option>Shipped</option>
-            <option>Delivered</option>
+          <span>Email</span>
+          <input type="email" name="email" placeholder="customer@email.com" />
+        </label>
+
+        <label className="field-group field-span-2">
+          <span>Item / Description</span>
+          <input type="text" name="itemName" placeholder="e.g. JAAF Rice 25kg" required />
+        </label>
+
+        <label className="field-group">
+          <span>Amount (₦)</span>
+          <input type="number" name="total" min="1" step="0.01" placeholder="45000" required />
+        </label>
+
+        <label className="field-group">
+          <span>Delivery Option</span>
+          <select name="deliveryOption" defaultValue="Pickup">
+            <option>Pickup</option>
+            <option>Home Delivery</option>
           </select>
         </label>
 
         <label className="field-group">
-          <span>Progress</span>
-          <input type="number" name="progress" min="0" max="100" placeholder="20" />
+          <span>Payment Method</span>
+          <select name="paymentMethod" defaultValue="Cash">
+            <option>Cash</option>
+            <option>Transfer</option>
+            <option>POS</option>
+          </select>
         </label>
 
-        <label className="field-group">
-          <span>Date</span>
-          <input type="date" name="date" />
+        <label className="field-group field-span-2">
+          <span>Address (optional)</span>
+          <input type="text" name="address" placeholder="Delivery address" />
         </label>
       </div>
 
       <div className="form-actions">
-        <button className="btn-outline" type="reset">Clear</button>
-        <button className="btn-gold" type="submit"><Save /> Save Order</button>
+        <button className="btn-outline" type="reset" disabled={saving}>Clear</button>
+        <button className="btn-gold" type="submit" disabled={saving}><Save /> {saving ? "Saving..." : "Save Order"}</button>
       </div>
     </form>
   );

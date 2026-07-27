@@ -1,8 +1,9 @@
 "use client";
 
 import { Mail, MapPin, Phone, Plus, Save, Search, Trash2, UserRound, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
+import { apiFetch } from "../lib/api";
 
 const emptyVendor = {
   name: "",
@@ -32,41 +33,78 @@ function vendorMatchesQuery(vendor, query) {
   return searchableText.includes(query.toLowerCase());
 }
 
-export default function VendorsManager({ initialVendors }) {
-  const [tableVendors, setTableVendors] = useState(initialVendors);
+export default function VendorsManager() {
+  const [tableVendors, setTableVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formVendor, setFormVendor] = useState(emptyVendor);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVendors() {
+      try {
+        const data = await apiFetch("/vendors");
+        if (!cancelled) setTableVendors(data.vendors || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load vendors.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadVendors();
+    return () => { cancelled = true; };
+  }, []);
   const filteredVendors = tableVendors.filter((vendor) => vendorMatchesQuery(vendor, query.trim()));
 
   function updateVendorField(field, value) {
     setFormVendor((vendor) => ({ ...vendor, [field]: value }));
   }
 
-  function addVendor(event) {
+  async function addVendor(event) {
     event.preventDefault();
-    const vendor = {
-      ...formVendor,
-      id: Date.now(),
-      name: formVendor.name.trim(),
-      contactName: formVendor.contactName.trim(),
-      phone: formVendor.phone.trim(),
-      email: formVendor.email.trim(),
-      accountNumber: formVendor.accountNumber.trim(),
-      address: formVendor.address.trim(),
-      status: formVendor.status,
-      notes: formVendor.notes.trim()
-    };
+    setSaving(true);
 
-    setTableVendors((currentVendors) => [vendor, ...currentVendors]);
-    setFormVendor(emptyVendor);
-    setMessage(`${vendor.name} has been added.`);
+    try {
+      const data = await apiFetch("/vendors", {
+        method: "POST",
+        body: {
+          name: formVendor.name.trim(),
+          contactName: formVendor.contactName.trim(),
+          phone: formVendor.phone.trim(),
+          email: formVendor.email.trim() || null,
+          accountNumber: formVendor.accountNumber.trim(),
+          address: formVendor.address.trim(),
+          status: formVendor.status,
+          notes: formVendor.notes.trim()
+        }
+      });
+
+      setTableVendors((currentVendors) => [data.vendor, ...currentVendors]);
+      setFormVendor(emptyVendor);
+      setMessage(`${data.vendor.name} has been added.`);
+    } catch (error) {
+      setMessage(error.message || "Vendor could not be saved.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function deleteVendor(vendorId) {
+  async function deleteVendor(vendorId) {
     const vendor = tableVendors.find((item) => item.id === vendorId);
-    setTableVendors((currentVendors) => currentVendors.filter((item) => item.id !== vendorId));
-    setMessage(vendor ? `${vendor.name} has been deleted.` : "");
+    if (!vendor) return;
+    if (!window.confirm(`Delete ${vendor.name}? This cannot be undone.`)) return;
+
+    try {
+      await apiFetch(`/vendors/${vendorId}`, { method: "DELETE" });
+      setTableVendors((currentVendors) => currentVendors.filter((item) => item.id !== vendorId));
+      setMessage(`${vendor.name} has been deleted.`);
+    } catch (error) {
+      setMessage(error.message || "Vendor could not be deleted.");
+    }
   }
 
   return (
@@ -167,7 +205,7 @@ export default function VendorsManager({ initialVendors }) {
 
           <div className="form-actions">
             <button className="btn-outline" type="button" onClick={() => setFormVendor(emptyVendor)}>Clear</button>
-            <button className="btn-gold" type="submit"><Save /> Save Vendor</button>
+            <button className="btn-gold" type="submit" disabled={saving}><Save /> {saving ? "Saving..." : "Save Vendor"}</button>
           </div>
         </form>
       </section>
@@ -176,7 +214,7 @@ export default function VendorsManager({ initialVendors }) {
         <div className="section-header product-table-header">
           <div>
             <h2>Vendor Table</h2>
-            <p>{filteredVendors.length} of {tableVendors.length} vendor{tableVendors.length === 1 ? "" : "s"}</p>
+            <p>{loading ? "Loading vendors..." : `${filteredVendors.length} of ${tableVendors.length} vendor${tableVendors.length === 1 ? "" : "s"}`}</p>
           </div>
 
           <label className="product-search">
@@ -200,7 +238,7 @@ export default function VendorsManager({ initialVendors }) {
           columns={["Vendor", "Contact", "Phone", "Email", "Account No.", "Status", "Address", "Notes", "Actions"]}
           rows={filteredVendors}
           rowKey={(vendor) => vendor.id}
-          emptyMessage="No vendors match your search."
+          emptyMessage={loading ? "Loading vendors..." : "No vendors match your search."}
           tableClassName="product-data-table"
           renderRow={(vendor) => (
             <>

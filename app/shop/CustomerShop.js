@@ -4,26 +4,12 @@ import Link from "next/link";
 import { History, Minus, PackageCheck, Plus, Search, ShoppingBag, ShoppingCart, Store, Trash2, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatNaira } from "../data";
+import { apiFetch } from "../lib/api";
 
-const productStorageKey = "retail-products";
-const productUpdateEvent = "retail-products-updated";
 const shopCartStorageKey = "retail-shop-cart";
 const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 const paidPaymentMethods = ["Card Payment", "Bank Transfer", "Online Payment"];
-
-function normalizeProduct(product) {
-  return {
-    ...product,
-    frontDeskVisible: product.frontDeskVisible !== false,
-    expiryDate: product.expiryDate || ""
-  };
-}
-
-function normalizeProducts(products) {
-  return products.map(normalizeProduct);
-}
 
 function makeCartKey(product) {
   return `${product.sku}-${product.id}`;
@@ -43,8 +29,9 @@ function productMatchesQuery(product, query) {
   return searchableText.includes(query.toLowerCase());
 }
 
-export default function CustomerShop({ initialProducts }) {
-  const [products, setProducts] = useState(normalizeProducts(initialProducts));
+export default function CustomerShop() {
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [cartItems, setCartItems] = useState([]);
   const [homeOrders, setHomeOrders] = useState([]);
   const [query, setQuery] = useState("");
@@ -82,29 +69,22 @@ export default function CustomerShop({ initialProducts }) {
   }, [cartItems, customer.deliveryOption]);
 
   useEffect(() => {
-    function loadProducts() {
-      const savedProducts = localStorage.getItem(productStorageKey);
-      if (!savedProducts) {
-        setProducts(normalizeProducts(initialProducts));
-        return;
-      }
+    let cancelled = false;
 
+    async function loadProducts() {
       try {
-        setProducts(normalizeProducts(JSON.parse(savedProducts)));
-      } catch {
-        localStorage.removeItem(productStorageKey);
-        setProducts(normalizeProducts(initialProducts));
+        const data = await apiFetch("/products");
+        if (!cancelled) setProducts(data.products || []);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoadingProducts(false);
       }
     }
 
     loadProducts();
-    window.addEventListener("storage", loadProducts);
-    window.addEventListener(productUpdateEvent, loadProducts);
-    return () => {
-      window.removeEventListener("storage", loadProducts);
-      window.removeEventListener(productUpdateEvent, loadProducts);
-    };
-  }, [initialProducts]);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     try {
@@ -125,13 +105,6 @@ export default function CustomerShop({ initialProducts }) {
       localStorage.removeItem(homeOrdersStorageKey);
     }
   }, []);
-
-  function saveProducts(nextProducts) {
-    const normalizedProducts = normalizeProducts(nextProducts);
-    localStorage.setItem(productStorageKey, JSON.stringify(normalizedProducts));
-    window.dispatchEvent(new Event(productUpdateEvent));
-    return normalizedProducts;
-  }
 
   function saveHomeOrders(nextOrders) {
     localStorage.setItem(homeOrdersStorageKey, JSON.stringify(nextOrders));
@@ -234,13 +207,9 @@ export default function CustomerShop({ initialProducts }) {
     };
 
     try {
-      const response = await fetch(`${apiBaseUrl}/orders`, {
+      const data = await apiFetch("/orders", {
         method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
+        body: {
           source: "Shop Order",
           customer: {
             name: orderDraft.customerName,
@@ -256,18 +225,12 @@ export default function CustomerShop({ initialProducts }) {
           subtotal: orderDraft.subtotal,
           delivery_fee: orderDraft.deliveryFee,
           total: orderDraft.total
-        })
+        }
       });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setMessage(data.message || "Order could not be saved. Please try again.");
-        return;
-      }
 
       const order = data.order;
 
-      setProducts((currentProducts) => saveProducts(currentProducts.map((product) => {
+      setProducts((currentProducts) => currentProducts.map((product) => {
         const cartItem = cartItems.find((item) => item.id === product.id && item.sku === product.sku);
         if (!cartItem) return product;
 
@@ -275,7 +238,7 @@ export default function CustomerShop({ initialProducts }) {
           ...product,
           stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity)
         };
-      })));
+      }));
 
       rememberCustomerLookup(orderDraft);
       setHomeOrders((orders) => saveHomeOrders([order, ...orders]));
@@ -293,8 +256,8 @@ export default function CustomerShop({ initialProducts }) {
       setMessage(customer.deliveryOption === "Pickup"
         ? `${order.id} placed and paid. Collect at the store.`
         : `${order.id} placed. We will contact you for delivery.`);
-    } catch {
-      setMessage("Cannot reach the order API. Start the backend and try again.");
+    } catch (error) {
+      setMessage(error.message || "Order could not be saved. Please try again.");
     }
   }
 
@@ -316,7 +279,7 @@ export default function CustomerShop({ initialProducts }) {
         <div className="section-header product-table-header">
           <div>
             <h2><ShoppingBag /> Online Store</h2>
-            <p>{filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} ready to order</p>
+            <p>{loadingProducts ? "Loading products..." : `${filteredProducts.length} product${filteredProducts.length === 1 ? "" : "s"} ready to order`}</p>
           </div>
 
           <div className="shop-controls">
