@@ -5,8 +5,8 @@ import { History, Minus, PackageCheck, Plus, Search, ShoppingBag, ShoppingCart, 
 import { useEffect, useMemo, useState } from "react";
 import { formatNaira } from "../data";
 import { apiFetch } from "../lib/api";
+import { createPaymentReference, initiatePayment, isPaystackConfigured } from "../lib/paystack";
 
-const shopCartStorageKey = "retail-shop-cart";
 const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
 const paidPaymentMethods = ["Card Payment", "Bank Transfer", "Online Payment"];
@@ -73,7 +73,7 @@ export default function CustomerShop() {
 
     async function loadProducts() {
       try {
-        const data = await apiFetch("/products");
+        const data = await apiFetch("/products/customer");
         if (!cancelled) setProducts(data.products || []);
       } catch (error) {
         if (!cancelled) setMessage(error.message || "Could not load products.");
@@ -87,12 +87,20 @@ export default function CustomerShop() {
   }, []);
 
   useEffect(() => {
-    try {
-      setCartItems(JSON.parse(localStorage.getItem(shopCartStorageKey) || "[]"));
-    } catch {
-      localStorage.removeItem(shopCartStorageKey);
-      setCartItems([]);
+    let cancelled = false;
+
+    async function loadCart() {
+      try {
+        const data = await apiFetch("/cart");
+        if (!cancelled) setCartItems(data.cart?.items || []);
+      } catch (error) {
+        // Silently fail for cart loading - use empty cart
+        if (!cancelled) setCartItems([]);
+      }
     }
+
+    loadCart();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -111,8 +119,18 @@ export default function CustomerShop() {
     return nextOrders;
   }
 
-  function saveCart(nextItems) {
-    localStorage.setItem(shopCartStorageKey, JSON.stringify(nextItems));
+  async function saveCart(nextItems) {
+    try {
+      await apiFetch("/cart", {
+        method: "PUT",
+        body: { items: nextItems.map(item => ({
+          product_id: item.id,
+          quantity: item.quantity
+        })) }
+      });
+    } catch (error) {
+      console.error("Failed to save cart:", error);
+    }
     return nextItems;
   }
 
@@ -130,7 +148,7 @@ export default function CustomerShop() {
     }));
   }
 
-  function addToCart(product) {
+  async function addToCart(product) {
     const stock = Number(product.stock || 0);
     const cartKey = makeCartKey(product);
 
@@ -141,35 +159,45 @@ export default function CustomerShop() {
 
     setCartItems((items) => {
       const existing = items.find((item) => item.cartKey === cartKey);
-      if (existing) {
-        return saveCart(items.map((item) => (
-          item.cartKey === cartKey ? { ...item, quantity: Math.min(stock, item.quantity + 1) } : item
-        )));
-      }
-
-      return saveCart([{
-        cartKey,
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-        category: product.category,
-        price: Number(product.price || 0),
-        stock,
-        quantity: 1
-      }, ...items]);
+      const nextItems = existing
+        ? items.map((item) => (
+            item.cartKey === cartKey ? { ...item, quantity: Math.min(stock, item.quantity + 1) } : item
+          ))
+        : [{
+            cartKey,
+            id: product.id,
+            name: product.name,
+            sku: product.sku,
+            category: product.category,
+            price: Number(product.price || 0),
+            stock,
+            quantity: 1
+          }, ...items];
+      
+      // Save cart asynchronously
+      saveCart(nextItems);
+      return nextItems;
     });
     setMessage(`${product.name} added to cart.`);
     setCartOpen(true);
   }
 
   function updateQuantity(cartKey, quantity) {
-    setCartItems((items) => saveCart(items.map((item) => (
-      item.cartKey === cartKey ? { ...item, quantity: Math.max(1, Math.min(item.stock, Number(quantity || 1))) } : item
-    ))));
+    setCartItems((items) => {
+      const nextItems = items.map((item) => (
+        item.cartKey === cartKey ? { ...item, quantity: Math.max(1, Math.min(item.stock, Number(quantity || 1))) } : item
+      ));
+      saveCart(nextItems);
+      return nextItems;
+    });
   }
 
   function removeCartItem(cartKey) {
-    setCartItems((items) => saveCart(items.filter((item) => item.cartKey !== cartKey)));
+    setCartItems((items) => {
+      const nextItems = items.filter((item) => item.cartKey !== cartKey);
+      saveCart(nextItems);
+      return nextItems;
+    });
   }
 
   function rememberCustomerLookup(orderCustomer) {
@@ -187,10 +215,22 @@ export default function CustomerShop() {
       return;
     }
 
+    if (!customer.email.trim()) {
+      setMessage("Please enter your email address for payment.");
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(customer.email.trim())) {
+      setMessage("Please enter a valid email address.");
+      return;
+    }
+
     const orderDraft = {
       id: `WEB-${String(Date.now()).slice(-6)}`,
-      customerName: customer.name.trim(),
-      phone: customer.phone.trim(),
+      customerName: customer.name.trim() || "Customer",
+      phone: customer.phone.trim() || "",
       email: customer.email.trim().toLowerCase(),
       deliveryOption: customer.deliveryOption,
       address: customer.deliveryOption === "Pickup" ? "Paid pickup at store" : customer.address.trim(),
@@ -201,68 +241,152 @@ export default function CustomerShop() {
       deliveryFee: totals.deliveryFee,
       total: totals.total,
       status: "Pending",
-      paymentStatus: paidPaymentMethods.includes(customer.paymentMethod) ? "Paid" : "Pending",
+      paymentStatus: "Pending", // Will be updated after payment
       deliveryStatus: customer.deliveryOption === "Home Delivery" ? "Order Received" : "Ready for Store Pickup",
       createdAt: new Date().toLocaleString()
     };
 
+    // Check if Paystack is configured
+    if (!isPaystackConfigured()) {
+      setMessage("Payment system is not configured. Please contact support.");
+      return;
+    }
+
+    setMessage("Processing payment...");
+
     try {
-      const data = await apiFetch("/orders", {
-        method: "POST",
-        body: {
-          source: "Shop Order",
-          customer: {
-            name: orderDraft.customerName,
-            phone: orderDraft.phone,
-            email: orderDraft.email,
-            address: customer.deliveryOption === "Pickup" ? "" : customer.address.trim()
-          },
+      // Generate payment reference
+      const paymentReference = createPaymentReference("WEB");
+      
+      // Initiate Paystack payment
+      await initiatePayment({
+        email: orderDraft.email,
+        amount: orderDraft.total,
+        reference: paymentReference,
+        metadata: {
+          order_id: orderDraft.id,
+          customer_name: orderDraft.customerName,
+          customer_phone: orderDraft.phone,
           delivery_option: orderDraft.deliveryOption,
-          delivery_note: orderDraft.deliveryNote,
-          payment_method: orderDraft.paymentMethod,
-          payment_status: orderDraft.paymentStatus,
-          items: orderDraft.items,
-          subtotal: orderDraft.subtotal,
-          delivery_fee: orderDraft.deliveryFee,
-          total: orderDraft.total
+          items_count: orderDraft.items.length,
+          source: "Shop Order"
+        },
+        onSuccess: async (paymentResponse) => {
+          // Payment successful, create order
+          try {
+            const data = await apiFetch("/orders", {
+              method: "POST",
+              body: {
+                source: "Shop Order",
+                customer: {
+                  name: orderDraft.customerName,
+                  phone: orderDraft.phone,
+                  email: orderDraft.email,
+                  address: customer.deliveryOption === "Pickup" ? "" : customer.address.trim()
+                },
+                delivery_option: orderDraft.deliveryOption,
+                delivery_note: orderDraft.deliveryNote,
+                payment_method: "Paystack",
+                payment_status: "Paid",
+                payment_reference: paymentReference,
+                payment_data: paymentResponse,
+                items: orderDraft.items.map(item => ({
+                  name: item.name,
+                  sku: item.sku,
+                  price: item.price,
+                  quantity: item.quantity
+                })),
+                subtotal: orderDraft.subtotal,
+                delivery_fee: orderDraft.deliveryFee,
+                total: orderDraft.total
+              }
+            });
+
+            const order = data.order;
+
+            setProducts((currentProducts) => currentProducts.map((product) => {
+              const cartItem = cartItems.find((item) => item.id === product.id && item.sku === product.sku);
+              if (!cartItem) return product;
+
+              return {
+                ...product,
+                stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity)
+              };
+            }));
+
+            rememberCustomerLookup(orderDraft);
+            setHomeOrders((orders) => saveHomeOrders([order, ...orders]));
+            setCartItems([]);
+            // Clear cart via API (fire and forget - don't await)
+            apiFetch("/cart", { method: "DELETE" }).catch(() => {
+              // Silently fail - cart will be cleared locally anyway
+            });
+            setCustomer({
+              name: "",
+              phone: "",
+              email: "",
+              address: "",
+              deliveryNote: "",
+              deliveryOption: "Home Delivery",
+              paymentMethod: "Card Payment"
+            });
+            setCartOpen(false);
+            setMessage(customer.deliveryOption === "Pickup"
+              ? `Order ${order.id} placed and paid. Collect at the store.`
+              : `Order ${order.id} placed and paid. We will contact you for delivery.`);
+          } catch (error) {
+            setMessage(`Payment successful but order creation failed: ${error.message}`);
+          }
+        },
+        onClose: () => {
+          setMessage("Payment cancelled. Order not placed.");
         }
       });
-
-      const order = data.order;
-
-      setProducts((currentProducts) => currentProducts.map((product) => {
-        const cartItem = cartItems.find((item) => item.id === product.id && item.sku === product.sku);
-        if (!cartItem) return product;
-
-        return {
-          ...product,
-          stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity)
-        };
-      }));
-
-      rememberCustomerLookup(orderDraft);
-      setHomeOrders((orders) => saveHomeOrders([order, ...orders]));
-      setCartItems(saveCart([]));
-      setCustomer({
-        name: "",
-        phone: "",
-        email: "",
-        address: "",
-        deliveryNote: "",
-        deliveryOption: "Home Delivery",
-        paymentMethod: "Card Payment"
-      });
-      setCartOpen(false);
-      setMessage(customer.deliveryOption === "Pickup"
-        ? `${order.id} placed and paid. Collect at the store.`
-        : `${order.id} placed. We will contact you for delivery.`);
     } catch (error) {
-      setMessage(error.message || "Order could not be saved. Please try again.");
+      setMessage(`Payment initialization failed: ${error.message}`);
     }
   }
 
   return (
     <>
+      <style jsx>{`
+        .shop-filters {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+        }
+        .category-filter {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+        }
+        .category-filter select {
+          padding: 6px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          background: white;
+          font-size: 14px;
+          min-width: 120px;
+        }
+        .category-filter span {
+          color: #6b7280;
+          font-weight: 500;
+        }
+        .product-attributes {
+          font-size: 12px;
+          color: #6b7280;
+          margin-top: 4px;
+        }
+        .product-category-badge {
+          display: inline-block;
+          padding: 2px 8px;
+          background: #e5e7eb;
+          border-radius: 12px;
+          font-size: 11px;
+          margin-left: 8px;
+        }
+      `}</style>
       <section className="shop-hero">
         <div>
           <span className="shop-eyebrow"><Truck /> Home Delivery</span>
@@ -280,6 +404,33 @@ export default function CustomerShop() {
           <div>
             <h2><ShoppingBag /> Online Store</h2>
             <p>{loadingProducts ? "Loading products..." : `${filteredProducts.length} product${filteredProducts.length === 1 ? "" : "s"} ready to order`}</p>
+          </div>
+          
+          <div className="shop-filters">
+            <label className="product-search">
+              <Search />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search products..."
+                aria-label="Search products"
+              />
+              {query && (
+                <button type="button" onClick={() => setQuery("")} aria-label="Clear search">
+                  <X />
+                </button>
+              )}
+            </label>
+            
+            <label className="category-filter">
+              <span>Category:</span>
+              <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <div className="shop-controls">

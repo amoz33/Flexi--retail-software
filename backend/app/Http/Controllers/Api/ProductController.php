@@ -10,9 +10,15 @@ class ProductController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
         $isAdmin = $this->isAdmin($request);
-
+        
         $query = Product::orderBy('name');
+
+        // Filter by outlet if user is assigned to one (non-admin)
+        if ($user && $user->outlet_id && !$isAdmin) {
+            $query->where('outlet_id', $user->outlet_id);
+        }
 
         if (!$isAdmin) {
             $query->where('front_desk_visible', true);
@@ -32,10 +38,18 @@ class ProductController extends Controller
         }
 
         $data = $this->validateProduct($request);
+        $user = $request->user();
+        
+        $productData = $this->toColumns($data);
+        
+        // Assign outlet_id from user if available
+        if ($user && $user->outlet_id) {
+            $productData['outlet_id'] = $user->outlet_id;
+        }
 
         $product = Product::updateOrCreate(
             ['sku' => $data['sku']],
-            $this->toColumns($data)
+            $productData
         );
 
         return response()->json(['product' => $this->productPayload($product, true)], 201);
@@ -102,13 +116,13 @@ class ProductController extends Controller
             'sku' => [$required, 'string', 'max:255'],
             'barcode' => ['nullable', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:255'],
-            'expiryDate' => ['nullable', 'date'],
+            'expiryDate' => [$required, 'date'],
             'description' => ['nullable', 'string'],
             'images' => ['nullable', 'array'],
             'attributes' => ['nullable', 'array'],
             'variants' => ['nullable', 'array'],
-            'price' => ['nullable', 'numeric', 'min:0'],
-            'costPrice' => ['nullable', 'numeric', 'min:0'],
+            'price' => [$required, 'numeric', 'min:0'],
+            'costPrice' => [$required, 'numeric', 'min:0'],
             'stock' => ['nullable', 'integer', 'min:0'],
             'soldCount' => ['nullable', 'integer', 'min:0'],
             'frontDeskVisible' => ['nullable', 'boolean'],
@@ -163,5 +177,37 @@ class ProductController extends Controller
         }
 
         return $payload;
+    }
+
+    public function customerIndex(Request $request)
+    {
+        $query = Product::where('front_desk_visible', true)
+            ->where('stock', '>', 0)
+            ->orderBy('name');
+
+        // Optional outlet filter from query parameter
+        if ($request->has('outlet_id')) {
+            $query->where('outlet_id', $request->input('outlet_id'));
+        }
+
+        $products = $query->get();
+
+        return response()->json([
+            'products' => $products->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'barcode' => $product->barcode,
+                    'category' => $product->category,
+                    'description' => $product->description,
+                    'images' => $product->images ?: [],
+                    'price' => (float) $product->price,
+                    'stock' => (int) $product->stock,
+                    'frontDeskVisible' => (bool) $product->front_desk_visible,
+                    'outlet_id' => $product->outlet_id,
+                ];
+            }),
+        ]);
     }
 }

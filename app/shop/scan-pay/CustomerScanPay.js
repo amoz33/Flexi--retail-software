@@ -7,7 +7,6 @@ import DataTable from "../../components/DataTable";
 import { formatNaira } from "../../data";
 import { apiFetch } from "../../lib/api";
 
-const scanPayCartStorageKey = "retail-scan-pay-cart";
 const receiptStorageKey = "retail-last-receipt";
 
 function makeCartKey(product) {
@@ -70,7 +69,7 @@ export default function CustomerScanPay() {
 
     async function loadProducts() {
       try {
-        const data = await apiFetch("/products");
+        const data = await apiFetch("/products/customer");
         if (!cancelled) setProducts(data.products || []);
       } catch (error) {
         if (!cancelled) setMessage(error.message || "Could not load products.");
@@ -79,13 +78,16 @@ export default function CustomerScanPay() {
       }
     }
 
-    function loadCart() {
+    async function loadCart() {
       try {
-        const savedCart = localStorage.getItem(scanPayCartStorageKey);
-        setCartItems(savedCart ? JSON.parse(savedCart) : []);
-        setHasReceipt(Boolean(localStorage.getItem(receiptStorageKey)));
+        const data = await apiFetch("/cart");
+        if (!cancelled) {
+          setCartItems(data.cart?.items || []);
+          setHasReceipt(Boolean(localStorage.getItem(receiptStorageKey)));
+        }
       } catch {
-        localStorage.removeItem(scanPayCartStorageKey);
+        // Silently fail for cart loading
+        if (!cancelled) setCartItems([]);
       }
     }
 
@@ -94,9 +96,19 @@ export default function CustomerScanPay() {
     return () => { cancelled = true; };
   }, []);
 
-  function saveCart(nextItems) {
-    localStorage.setItem(scanPayCartStorageKey, JSON.stringify(nextItems));
-    setCartItems(nextItems);
+  async function saveCart(nextItems) {
+    try {
+      await apiFetch("/cart", {
+        method: "PUT",
+        body: { items: nextItems.map(item => ({
+          product_id: item.id,
+          quantity: item.quantity
+        })) }
+      });
+      setCartItems(nextItems);
+    } catch (error) {
+      console.error("Failed to save cart:", error);
+    }
   }
 
   function getProductQuantity(product) {
@@ -111,7 +123,7 @@ export default function CustomerScanPay() {
     }));
   }
 
-  function addToCart(product, quantity = getProductQuantity(product)) {
+  async function addToCart(product, quantity = getProductQuantity(product)) {
     const stock = Number(product.stock || 0);
     const cartKey = makeCartKey(product);
 
@@ -145,7 +157,7 @@ export default function CustomerScanPay() {
       }, ...cartItems];
     })();
 
-    saveCart(nextItems);
+    await saveCart(nextItems);
     setMessage(`${quantity} ${product.name} added to cart.`);
   }
 
@@ -162,8 +174,8 @@ export default function CustomerScanPay() {
     setScanCode("");
   }
 
-  function buyNow(product) {
-    addToCart(product, getProductQuantity(product));
+  async function buyNow(product) {
+    await addToCart(product, getProductQuantity(product));
     window.location.href = "/shop/scan-pay/cart";
   }
 

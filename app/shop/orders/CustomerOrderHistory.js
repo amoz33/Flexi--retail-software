@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronDown, MessageSquareText, PackageCheck, Truck } from "lucide-react";
 import DataTable from "../../components/DataTable";
 import { formatNaira } from "../../data";
+import { apiFetch } from "../../lib/api";
 
 const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
 export default function CustomerOrderHistory() {
   const [orders, setOrders] = useState([]);
@@ -17,19 +17,16 @@ export default function CustomerOrderHistory() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const savedOrders = localStorage.getItem(homeOrdersStorageKey);
     const savedLookup = localStorage.getItem(customerLookupStorageKey);
 
-    try {
-      const parsedOrders = savedOrders ? JSON.parse(savedOrders) : [];
-      setOrders(parsedOrders);
-      if (savedLookup) {
+    if (savedLookup) {
+      try {
         const parsedLookup = JSON.parse(savedLookup);
         setLookup(parsedLookup);
         loadOrders(parsedLookup);
+      } catch {
+        localStorage.removeItem(customerLookupStorageKey);
       }
-    } catch {
-      localStorage.removeItem(homeOrdersStorageKey);
     }
   }, []);
 
@@ -60,27 +57,17 @@ export default function CustomerOrderHistory() {
   }
 
   async function loadOrders(nextLookup = lookup) {
-    const params = new URLSearchParams();
-    if (nextLookup.email) params.set("email", nextLookup.email);
-    if (nextLookup.phone) params.set("phone", nextLookup.phone);
-    if (!params.toString()) return;
+    if (!nextLookup.email && !nextLookup.phone) return;
 
     try {
-      const response = await fetch(`${apiBaseUrl}/orders/customer?${params.toString()}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store"
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setMessage(data.message || "Could not refresh orders.");
-        return;
-      }
-
+      const params = new URLSearchParams();
+      if (nextLookup.email) params.set("email", nextLookup.email);
+      if (nextLookup.phone) params.set("phone", nextLookup.phone);
+      
+      const data = await apiFetch(`/orders/customer?${params.toString()}`);
       setOrders(data.orders || []);
-      localStorage.setItem(homeOrdersStorageKey, JSON.stringify(data.orders || []));
-    } catch {
-      setMessage("Cannot reach the order API. Showing saved orders for now.");
+    } catch (error) {
+      setMessage(error.message || "Cannot reach the order API.");
     }
   }
 
@@ -94,26 +81,16 @@ export default function CustomerOrderHistory() {
     if (!order.databaseId) return;
 
     try {
-      const response = await fetch(`${apiBaseUrl}/orders/${order.databaseId}/delivered`, {
+      const data = await apiFetch(`/orders/${order.databaseId}/delivered`, {
         method: "PATCH",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ comment })
+        body: { comment }
       });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setMessage(data.message || "Delivery could not be confirmed.");
-        return;
-      }
 
       setOrders((currentOrders) => currentOrders.map((item) => item.databaseId === data.order.databaseId ? data.order : item));
       setSelectedOrder(data.order);
       setMessage(`${data.order.id} has been confirmed delivered.`);
-    } catch {
-      setMessage("Cannot reach the order API. Try again when the backend is running.");
+    } catch (error) {
+      setMessage(error.message || "Delivery could not be confirmed.");
     }
   }
 

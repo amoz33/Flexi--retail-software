@@ -17,6 +17,8 @@ class RetailOrder extends Model
         'delivery_note',
         'payment_method',
         'payment_status',
+        'payment_reference',
+        'payment_data',
         'items',
         'subtotal',
         'delivery_fee',
@@ -28,6 +30,7 @@ class RetailOrder extends Model
 
     protected $casts = [
         'items' => 'array',
+        'payment_data' => 'array',
         'subtotal' => 'float',
         'delivery_fee' => 'float',
         'total' => 'float',

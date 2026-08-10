@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\RetailOrder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -42,6 +44,8 @@ class OrderController extends Controller
             'delivery_note' => ['nullable', 'string', 'max:2000'],
             'payment_method' => ['nullable', 'string', 'max:50'],
             'payment_status' => ['nullable', 'string', 'max:30'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+            'payment_data' => ['nullable', 'array'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.name' => ['required', 'string', 'max:255'],
             'items.*.sku' => ['nullable', 'string', 'max:100'],
@@ -51,6 +55,11 @@ class OrderController extends Controller
             'delivery_fee' => ['sometimes', 'numeric', 'min:0'],
             'total' => ['required', 'numeric', 'min:0'],
         ]);
+
+        // If payment reference is provided, verify payment is successful
+        if (!empty($data['payment_reference'])) {
+            $this->verifyPayment($data['payment_reference']);
+        }
 
         $order = DB::transaction(function () use ($data) {
             foreach ($data['items'] as $item) {
@@ -89,6 +98,8 @@ class OrderController extends Controller
                 'delivery_note' => $data['delivery_note'] ?? null,
                 'payment_method' => $data['payment_method'] ?? null,
                 'payment_status' => $data['payment_status'] ?? 'Pending',
+                'payment_reference' => $data['payment_reference'] ?? null,
+                'payment_data' => $data['payment_data'] ?? null,
                 'items' => $data['items'],
                 'subtotal' => $data['subtotal'],
                 'delivery_fee' => $data['delivery_fee'] ?? 0,
@@ -245,6 +256,7 @@ class OrderController extends Controller
             'deliveryNote' => $order->delivery_note,
             'paymentMethod' => $order->payment_method,
             'paymentStatus' => $order->payment_status,
+            'paymentReference' => $order->payment_reference,
             'items' => $order->items ?: [],
             'subtotal' => $order->subtotal,
             'deliveryFee' => $order->delivery_fee,
@@ -267,5 +279,85 @@ class OrderController extends Controller
         if ($status === 'Shipped') return 75;
         if ($status === 'Packed') return 45;
         return 20;
+    }
+
+    /**
+     * Verify payment with Paystack
+     */
+    private function verifyPayment($reference)
+    {
+        $paystackSecretKey = env('PAYSTACK_SECRET_KEY');
+        
+        if (!$paystackSecretKey) {
+            throw new \Exception('Paystack secret key not configured');
+        }
+
+        // For development/testing with test references
+        if (env('APP_ENV') === 'local' && Str::startsWith($reference, 'test-')) {
+            return $this->handleTestPayment($reference);
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $paystackSecretKey,
+            ])->get('https://api.paystack.co/transaction/verify/' . $reference);
+
+            $data = $response->json();
+
+            if (!$data['status'] || $data['data']['status'] !== 'success') {
+                throw new \Exception('Payment verification failed or payment not successful');
+            }
+
+            // Check if payment already exists
+            $payment = Payment::where('reference', $reference)->first();
+            
+            if (!$payment) {
+                $transaction = $data['data'];
+                Payment::create([
+                    'reference' => $reference,
+                    'customer_email' => $transaction['customer']['email'],
+                    'amount' => $transaction['amount'] / 100,
+                    'currency' => $transaction['currency'],
+                    'status' => 'success',
+                    'gateway_response' => $transaction['gateway_response'],
+                    'paid_at' => now()->parse($transaction['paid_at']),
+                    'transaction_data' => json_encode($transaction),
+                ]);
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            throw new \Exception('Payment verification failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle test payment for development
+     */
+    private function handleTestPayment($reference)
+    {
+        // Simulate successful payment for test references
+        $payment = Payment::where('reference', $reference)->first();
+        
+        if (!$payment) {
+            Payment::create([
+                'reference' => $reference,
+                'customer_email' => 'test@example.com',
+                'amount' => 100.00,
+                'currency' => 'NGN',
+                'status' => 'success',
+                'gateway_response' => 'Test payment approved',
+                'paid_at' => now(),
+                'transaction_data' => json_encode([
+                    'reference' => $reference,
+                    'status' => 'success',
+                    'amount' => 10000,
+                    'currency' => 'NGN',
+                    'paid_at' => now()->toISOString(),
+                ]),
+            ]);
+        }
+
+        return true;
     }
 }

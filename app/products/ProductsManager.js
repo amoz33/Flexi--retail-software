@@ -142,6 +142,7 @@ export default function ProductsManager() {
       expiryDate: product.expiryDate || "",
       description: product.description || "",
       price: product.price ?? 0,
+      costPrice: product.costPrice ?? 0,
       stock: product.stock ?? 0
     });
   }
@@ -175,6 +176,7 @@ export default function ProductsManager() {
           expiryDate: editForm.expiryDate || null,
           description: editForm.description.trim() || null,
           price: Number(editForm.price) || 0,
+          costPrice: Number(editForm.costPrice) || 0,
           stock: Math.max(0, Math.round(Number(editForm.stock) || 0))
         }
       });
@@ -233,6 +235,35 @@ export default function ProductsManager() {
 
   return (
     <>
+      <style jsx>{`
+        .margin-badge {
+          display: inline-block;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+        .margin-high {
+          background-color: #10b981;
+          color: white;
+        }
+        .margin-medium {
+          background-color: #f59e0b;
+          color: white;
+        }
+        .margin-low {
+          background-color: #ef4444;
+          color: white;
+        }
+        .cost-text {
+          color: #6b7280;
+          font-weight: 500;
+        }
+        .gold-text {
+          color: #d97706;
+          font-weight: 600;
+        }
+      `}</style>
       <ProductCreationDropdown onCreateProduct={addProduct} onImportProducts={importProducts} />
 
       <section className="section-card">
@@ -262,72 +293,73 @@ export default function ProductsManager() {
         {message && <div className="front-desk-message">{message}</div>}
 
         <DataTable
-          columns={["Name", "SKU", "Barcode", "Expiry Date", "Description", "Images", "Attributes", "Variants", "Price", "Stock", "Front Desk", "Actions"]}
+          columns={["Name", "SKU", "Category", "Barcode", "Expiry Date", "Cost Price", "Selling Price", "Margin", "Stock", "Attributes", "Front Desk", "Actions"]}
           rows={filteredProducts}
           rowKey={(product) => `${product.sku}-${product.id}`}
           emptyMessage={loading ? "Loading products..." : "No products match your search."}
           tableClassName="product-data-table"
-          renderRow={(product) => (
-            <>
-              <td><strong>{product.name}</strong></td>
-              <td><span className="order-id">{product.sku}</span></td>
-              <td>{product.barcode || "-"}</td>
-              <td className={getExpiryClass(product.expiryDate)}>{product.expiryDate || "-"}</td>
-              <td className="description-cell">{product.description || "-"}</td>
-              <td>
-                <div className="product-table-image">
-                  {getProductImage(product)
-                    ? <img src={getProductImage(product)} alt={product.name} />
-                    : <ImageIcon aria-label="No product image" />}
-                </div>
-              </td>
-              <td className="description-cell">{summarizeAttributes(product.attributes)}</td>
-              <td className="description-cell">{summarizeVariants(product.variants)}</td>
-              <td className="gold-text">{formatNaira(product.price || 0)}</td>
-              <td>{product.stock || 0}</td>
-              <td>
-                <span className={`status-badge ${product.frontDeskVisible === false ? "status-inactive" : "status-active"}`}>
-                  {product.frontDeskVisible === false ? "Hidden" : "Visible"}
-                </span>
-              </td>
-              <td>
-                <div className="product-action-buttons">
-                  <button
-                    className="btn-outline product-row-button"
-                    type="button"
-                    onClick={() => openEditModal(product)}
-                  >
-                    <Pencil />
-                    Edit
-                  </button>
-                  <button
-                    className="btn-outline product-row-button"
-                    type="button"
-                    onClick={() => toggleFrontDeskProduct(product)}
-                  >
-                    {product.frontDeskVisible === false ? <Eye /> : <EyeOff />}
-                    {product.frontDeskVisible === false ? "Add to Front Desk" : "Remove from Front Desk"}
-                  </button>
-                  <button
-                    className="btn-outline product-row-button waste-action-button"
-                    type="button"
-                    onClick={() => moveProductToWaste(product)}
-                  >
-                    <Recycle />
-                    Move to Waste
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    onClick={() => permanentlyDeleteProduct(product)}
-                    aria-label={`Permanently delete ${product.name}`}
-                  >
-                    <Trash2 />
-                  </button>
-                </div>
-              </td>
-            </>
-          )}
+          renderRow={(product) => {
+            const costPrice = product.costPrice || 0;
+            const sellingPrice = product.price || 0;
+            const margin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice * 100).toFixed(1) : 0;
+            const marginClass = margin >= 30 ? "margin-high" : margin >= 15 ? "margin-medium" : "margin-low";
+            
+            return (
+              <>
+                <td><strong>{product.name}</strong></td>
+                <td><span className="order-id">{product.sku}</span></td>
+                <td>{product.category || "General"}</td>
+                <td>{product.barcode || "-"}</td>
+                <td className={getExpiryClass(product.expiryDate)}>{product.expiryDate || "-"}</td>
+                <td className="cost-text">{formatNaira(costPrice)}</td>
+                <td className="gold-text">{formatNaira(sellingPrice)}</td>
+                <td><span className={`margin-badge ${marginClass}`}>{margin}%</span></td>
+                <td>{product.stock || 0}</td>
+                <td className="description-cell">{summarizeAttributes(product.attributes)}</td>
+                <td>
+                  <span className={`status-badge ${product.frontDeskVisible === false ? "status-inactive" : "status-active"}`}>
+                    {product.frontDeskVisible === false ? "Hidden" : "Visible"}
+                  </span>
+                </td>
+                <td>
+                  <div className="product-action-buttons">
+                    <button
+                      className="btn-outline product-row-button"
+                      type="button"
+                      onClick={() => openEditModal(product)}
+                    >
+                      <Pencil />
+                      Edit
+                    </button>
+                    <button
+                      className="btn-outline product-row-button"
+                      type="button"
+                      onClick={() => toggleFrontDeskProduct(product)}
+                    >
+                      {product.frontDeskVisible === false ? <Eye /> : <EyeOff />}
+                      {product.frontDeskVisible === false ? "Add to Front Desk" : "Remove from Front Desk"}
+                    </button>
+                    <button
+                      className="btn-outline product-row-button waste-action-button"
+                      type="button"
+                      onClick={() => moveProductToWaste(product)}
+                    >
+                      <Recycle />
+                      Move to Waste
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      onClick={() => permanentlyDeleteProduct(product)}
+                      aria-label={`Permanently delete ${product.name}`}
+                    >
+                      <Trash2 />
+                    </button>
+                  </div>
+                </td>
+              </>
+            );
+          }}
         />
       </section>
       {/* <!-- Edit Product Modal --> */}
@@ -363,7 +395,11 @@ export default function ProductsManager() {
                 <textarea rows={3} value={editForm.description} onChange={(e) => updateEditField("description", e.target.value)} />
               </label>
               <label className="field-group">
-                <span>Price (₦)</span>
+                <span>Cost Price (₦)</span>
+                <input type="number" min="0" step="0.01" value={editForm.costPrice} onChange={(e) => updateEditField("costPrice", e.target.value)} />
+              </label>
+              <label className="field-group">
+                <span>Selling Price (₦)</span>
                 <input type="number" min="0" step="0.01" value={editForm.price} onChange={(e) => updateEditField("price", e.target.value)} />
               </label>
               <label className="field-group">

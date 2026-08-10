@@ -5,10 +5,9 @@ import { CreditCard, Landmark, Minus, ReceiptText, ScanLine, ShoppingCart, Trash
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../../components/DataTable";
 import { formatNaira } from "../../../data";
-import { createPaymentReference } from "../../../lib/paystack";
+import { createPaymentReference, initiatePayment, isPaystackConfigured } from "../../../lib/paystack";
 import { apiFetch } from "../../../lib/api";
 
-const scanPayCartStorageKey = "retail-scan-pay-cart";
 const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
 const receiptStorageKey = "retail-last-receipt";
@@ -40,32 +39,50 @@ export default function ScanPayCart() {
   useEffect(() => {
     let cancelled = false;
 
-    try {
-      const savedCart = localStorage.getItem(scanPayCartStorageKey);
-      const parsedCart = savedCart ? JSON.parse(savedCart) : [];
-      setCartItems(parsedCart);
-      setSelectedCartKeys(parsedCart.map((item) => item.cartKey));
-    } catch {
-      localStorage.removeItem(scanPayCartStorageKey);
+    async function loadCart() {
+      try {
+        const data = await apiFetch("/cart");
+        if (!cancelled) {
+          setCartItems(data.cart?.items || []);
+          setSelectedCartKeys((data.cart?.items || []).map((item) => item.cartKey));
+        }
+      } catch {
+        // Silently fail for cart loading
+        if (!cancelled) {
+          setCartItems([]);
+          setSelectedCartKeys([]);
+        }
+      }
     }
 
     async function loadProducts() {
       try {
-        const data = await apiFetch("/products");
+        const data = await apiFetch("/products/customer");
         if (!cancelled) setProducts(data.products || []);
       } catch {
         if (!cancelled) setProducts([]);
       }
     }
 
+    loadCart();
     loadProducts();
     return () => { cancelled = true; };
   }, []);
 
-  function saveCart(nextItems) {
-    localStorage.setItem(scanPayCartStorageKey, JSON.stringify(nextItems));
-    setCartItems(nextItems);
-    setSelectedCartKeys((keys) => keys.filter((key) => nextItems.some((item) => item.cartKey === key)));
+  async function saveCart(nextItems) {
+    try {
+      await apiFetch("/cart", {
+        method: "PUT",
+        body: { items: nextItems.map(item => ({
+          product_id: item.id,
+          quantity: item.quantity
+        })) }
+      });
+      setCartItems(nextItems);
+      setSelectedCartKeys((keys) => keys.filter((key) => nextItems.some((item) => item.cartKey === key)));
+    } catch (error) {
+      console.error("Failed to save cart:", error);
+    }
   }
 
   function updateQuantity(cartKey, quantity) {
@@ -76,7 +93,8 @@ export default function ScanPayCart() {
   }
 
   function removeCartItem(cartKey) {
-    saveCart(cartItems.filter((item) => item.cartKey !== cartKey));
+    const nextItems = cartItems.filter((item) => item.cartKey !== cartKey);
+    saveCart(nextItems);
   }
 
   function toggleCartItem(cartKey) {
@@ -212,30 +230,79 @@ export default function ScanPayCart() {
       return;
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(customerEmail.trim())) {
+      setMessage("Please enter a valid email address.");
+      return;
+    }
+
     const unavailableItem = selectedItems.find((item) => item.quantity > Number(products.find((product) => product.id === item.id && product.sku === item.sku)?.stock || item.stock || 0));
     if (unavailableItem) {
       setMessage(`Only ${unavailableItem.stock} ${unavailableItem.name} available.`);
       return;
     }
 
+    // Check if Paystack is configured
+    if (!isPaystackConfigured()) {
+      setMessage("Payment system is not configured. Please contact support.");
+      return;
+    }
+
     const order = buildPaidOrder(selectedItems);
     setPaying(true);
+    setMessage("Processing payment...");
 
-    window.setTimeout(async () => {
-      try {
-        const backendOrder = await saveBackendOrder(order);
-        const syncedOrder = { ...order, ...backendOrder };
-        saveProductsAfterPayment(order.items);
-        saveOrder(syncedOrder);
-        saveReceipt(syncedOrder);
-        rememberCustomerLookup(order);
-        saveCart(cartItems.filter((item) => !selectedCartKeys.includes(item.cartKey)));
-        setMessage(`Payment approved by ${order.paymentMethod}. Receipt is ready for customer and cashier.`);
-      } catch (error) {
-        setMessage(error.message || "Payment was approved, but the backend order could not be saved.");
-      }
+    try {
+      // Generate payment reference
+      const paymentReference = createPaymentReference("SCAN");
+      
+      // Initiate Paystack payment
+      await initiatePayment({
+        email: customerEmail.trim(),
+        amount: order.total,
+        reference: paymentReference,
+        metadata: {
+          order_id: order.id,
+          customer_name: order.customerName,
+          customer_phone: order.phone,
+          delivery_option: order.deliveryOption,
+          items_count: order.items.length,
+          source: "Scan & Pay"
+        },
+        onSuccess: async (paymentResponse) => {
+          // Payment successful, create order
+          try {
+            const updatedOrder = {
+              ...order,
+              paymentMethod: "Paystack",
+              paymentStatus: "Paid",
+              paymentReference: paymentReference,
+              paymentChannel: "paystack"
+            };
+
+            const backendOrder = await saveBackendOrder(updatedOrder);
+            const syncedOrder = { ...updatedOrder, ...backendOrder };
+            saveProductsAfterPayment(order.items);
+            saveOrder(syncedOrder);
+            saveReceipt(syncedOrder);
+            rememberCustomerLookup(order);
+            saveCart(cartItems.filter((item) => !selectedCartKeys.includes(item.cartKey)));
+            setMessage(`Payment successful! Receipt is ready for customer and cashier.`);
+          } catch (error) {
+            setMessage(`Payment successful but order creation failed: ${error.message}`);
+          }
+          setPaying(false);
+        },
+        onClose: () => {
+          setMessage("Payment cancelled. Order not placed.");
+          setPaying(false);
+        }
+      });
+    } catch (error) {
+      setMessage(`Payment initialization failed: ${error.message}`);
       setPaying(false);
-    }, 700);
+    }
   }
 
   return (

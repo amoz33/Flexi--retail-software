@@ -1,7 +1,7 @@
 "use client";
 
 import { FileSpreadsheet, ImagePlus, Plus, Save, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 
 const emptyAttribute = { name: "", value: "" };
@@ -68,6 +68,7 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
   const [variants, setVariants] = useState([{ ...emptyVariant }]);
   const [imageFiles, setImageFiles] = useState([]);
   const [importMessage, setImportMessage] = useState("");
+  const [expiryType, setExpiryType] = useState("expiryDate");
 
   function updateAttribute(index, field, value) {
     setAttributes((items) => items.map((item, itemIndex) => (
@@ -89,6 +90,23 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     setVariants((items) => items.length === 1 ? items : items.filter((_, itemIndex) => itemIndex !== index));
   }
 
+  useEffect(() => {
+    const expiryField = document.querySelector('input[name="expiryDate"]');
+    const warrantyField = document.getElementById('warrantyField');
+    
+    if (expiryType === 'warranty') {
+      expiryField.required = false;
+      expiryField.closest('.field-group').style.display = 'none';
+      warrantyField.style.display = 'block';
+      warrantyField.querySelector('select').required = true;
+    } else {
+      expiryField.required = true;
+      expiryField.closest('.field-group').style.display = 'block';
+      warrantyField.style.display = 'none';
+      warrantyField.querySelector('select').required = false;
+    }
+  }, [expiryType]);
+
   function handleImages(event) {
     const files = Array.from(event.target.files || []);
     Promise.all(files.map((file) => new Promise((resolve) => {
@@ -99,20 +117,49 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     }))).then(setImageFiles);
   }
 
+  function handleExpiryTypeChange(event) {
+    setExpiryType(event.target.value);
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    
+    // Calculate expiry date based on type
+    let expiryDateValue = "";
+    const expiryTypeValue = formData.get("expiryType");
+    
+    if (expiryTypeValue === "warranty") {
+      const warrantyPeriod = formData.get("warrantyPeriod");
+      const warrantyMonths = {
+        "3months": 3,
+        "6months": 6,
+        "1year": 12,
+        "2years": 24,
+        "lifetime": 120 // 10 years for lifetime
+      };
+      const months = warrantyMonths[warrantyPeriod] || 12;
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + months);
+      expiryDateValue = expiryDate.toISOString().split('T')[0];
+    } else {
+      expiryDateValue = formData.get("expiryDate") || "";
+    }
+
     const product = {
       id: Date.now(),
       name: formData.get("name")?.trim(),
       sku: formData.get("sku")?.trim(),
       barcode: formData.get("barcode")?.trim(),
-      expiryDate: formData.get("expiryDate") || "",
+      expiryDate: expiryDateValue,
+      expiryType: expiryTypeValue,
+      warrantyPeriod: expiryTypeValue === "warranty" ? formData.get("warrantyPeriod") : null,
       description: formData.get("description")?.trim(),
       images: imageFiles.map((image) => image.src).filter(Boolean),
       attributes: attributes.filter((attribute) => attribute.name || attribute.value),
       variants: variants.filter((variant) => variant.name || variant.sku),
       price: Number(formData.get("price") || 0),
+      costPrice: Number(formData.get("costPrice") || 0),
       stock: Number(formData.get("stock") || 0),
       soldCount: 0,
       revenue: 0
@@ -124,6 +171,7 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     setAttributes([{ ...emptyAttribute }]);
     setVariants([{ ...emptyVariant }]);
     setImageFiles([]);
+    setExpiryType("expiryDate");
   }
 
   function handleReset() {
@@ -199,8 +247,37 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
         </label>
 
         <label className="field-group">
-          <span>Expiry Date</span>
-          <input type="date" name="expiryDate" />
+          <span>Cost Price</span>
+          <input type="number" name="costPrice" min="0" placeholder="595000" required />
+        </label>
+
+        <label className="field-group">
+          <span>Selling Price</span>
+          <input type="number" name="price" min="0" placeholder="850000" required />
+        </label>
+
+        <label className="field-group">
+          <span>Expiry Type*</span>
+          <select name="expiryType" value={expiryType} onChange={handleExpiryTypeChange} required>
+            <option value="expiryDate">Expiry Date</option>
+            <option value="warranty">Warranty Period</option>
+          </select>
+        </label>
+
+        <label className="field-group">
+          <span>Expiry Date*</span>
+          <input type="date" name="expiryDate" required />
+        </label>
+
+        <label className="field-group" style={{display: 'none'}} id="warrantyField">
+          <span>Warranty Period*</span>
+          <select name="warrantyPeriod">
+            <option value="3months">3 Months</option>
+            <option value="6months">6 Months</option>
+            <option value="1year">1 Year</option>
+            <option value="2years">2 Years</option>
+            <option value="lifetime">Lifetime</option>
+          </select>
         </label>
 
         <label className="field-group field-span-2">

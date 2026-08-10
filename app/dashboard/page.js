@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, Flame, LineChart, PackageCheck, Recycle, Star, TrendingUp } from "lucide-react";
+import { AlertTriangle, Building2, CalendarDays, CheckCircle2, Clock3, Flame, LineChart, PackageCheck, Recycle, Star, Store, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import StatCard from "../components/StatCard";
 import RecentOrdersTable from "../components/RecentOrdersTable";
+import OutletManager from "./OutletManager";
 import { formatNaira } from "../data";
 import { apiFetch } from "../lib/api";
 import { chartMonths, monthlyIncomeFromOrders } from "../components/Charts";
@@ -31,6 +32,8 @@ export default function DashboardPage() {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("overview");
+  const [outlets, setOutlets] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,14 @@ export default function DashboardPage() {
         load("/sales", (data) => setSales(data.sales || [])),
         load("/staff", (data) => setStaff(data.staff || data.users || []))
       ]);
+
+      // Try to load outlets if admin
+      try {
+        const outletsData = await apiFetch("/outlets");
+        if (!cancelled) setOutlets(outletsData.outlets || []);
+      } catch {
+        // User might not have access to outlets endpoint
+      }
 
       if (!cancelled) setLoading(false);
     }
@@ -112,6 +123,11 @@ export default function DashboardPage() {
   const peakMonth = bestMonthValue > 0 ? chartMonths[monthlyIncome.income.indexOf(bestMonthValue)] : "-";
   const recentOrders = orders.slice(0, 5);
 
+  const outletStats = outlets.length > 0 ? [
+    { icon: <Store />, label: "Total Outlets", value: outlets.length, trend: `${outlets.filter(o => o.is_active).length} active` },
+    { icon: <Building2 />, label: "Active Outlets", value: outlets.filter(o => o.is_active).length, trend: `${outlets.filter(o => !o.is_active).length} inactive` }
+  ] : [];
+
   const stats = [
     { icon: <TrendingUp />, label: "Total Revenue", value: formatNaira(totalRevenue), trend: "Orders + cashier sales" },
     { icon: <CheckCircle2 />, label: "Success Rate", value: totalOrders ? `${Math.round((delivered / totalOrders) * 100)}%` : "0%", trend: `${delivered}/${totalOrders} delivered` },
@@ -126,7 +142,8 @@ export default function DashboardPage() {
       alert: expiryAlerts.length > 0
     },
     { icon: <LineChart />, label: "Avg Order", value: delivered ? formatNaira(Math.round(orderRevenue / delivered)) : formatNaira(0), trend: "Delivered orders" },
-    { icon: <CalendarDays />, label: "Peak Month", value: peakMonth, trend: "Highest revenue" }
+    { icon: <CalendarDays />, label: "Peak Month", value: peakMonth, trend: "Highest revenue" },
+    ...outletStats
   ];
 
   return (
@@ -139,57 +156,117 @@ export default function DashboardPage() {
         <div className="role-badge">Flexi Access</div>
       </div>
 
-      <div className="cards-grid">
-        {stats.map((stat, index) => (
-          <StatCard key={stat.label} index={index + 1} {...stat} />
-        ))}
+      <style jsx>{`
+        .dashboard-tabs {
+          display: flex;
+          border-bottom: 1px solid #e5e7eb;
+          margin-bottom: 24px;
+        }
+        .dashboard-tab {
+          padding: 12px 24px;
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          font-size: 14px;
+          font-weight: 500;
+          color: #6b7280;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .dashboard-tab:hover {
+          color: #374151;
+        }
+        .dashboard-tab.active {
+          color: #d97706;
+          border-bottom-color: #d97706;
+        }
+        .outlet-badge {
+          display: inline-block;
+          margin-left: 8px;
+          padding: 2px 6px;
+          background: #f3f4f6;
+          border-radius: 12px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #374151;
+        }
+      `}</style>
+
+      <div className="dashboard-tabs">
+        <button 
+          className={`dashboard-tab ${activeTab === 'overview' ? 'active' : ''}`} 
+          onClick={() => setActiveTab('overview')}
+        >
+          <LineChart /> Overview
+        </button>
+        <button 
+          className={`dashboard-tab ${activeTab === 'outlets' ? 'active' : ''}`} 
+          onClick={() => setActiveTab('outlets')}
+        >
+          <Store /> Outlets
+          {outlets.length > 0 && <span className="outlet-badge">{outlets.length}</span>}
+        </button>
       </div>
 
-      {expiryAlerts.length > 0 && (
-        <section className="section-card expiry-alert-panel">
-          <div className="section-header">
-            <div>
-              <h2><AlertTriangle /> Expired Product Alert</h2>
-              <p>These products are expired or will expire within three months.</p>
-            </div>
-            <Link className="btn-outline" href="/products">Review Products</Link>
-          </div>
-          {message && <div className="front-desk-message">{message}</div>}
-          <div className="expiry-alert-list">
-            {expiryAlerts.map(({ product, expiry }) => (
-              <div className="expiry-alert-item" key={`${product.sku}-${product.id}`}>
-                <div>
-                  <strong>{product.name}</strong>
-                  <span>{product.sku} · {product.stock || 0} in stock</span>
-                </div>
-                <div>
-                  <span className="expiry-alert-status"><Clock3 /> {expiry.status}</span>
-                  <strong>{expiry.expiryDate.toLocaleDateString()}</strong>
-                </div>
-                <button className="btn-outline product-row-button waste-action-button" type="button" onClick={() => moveProductToWaste(product, expiry)}>
-                  <Recycle />
-                  Move to Waste
-                </button>
-              </div>
+      {activeTab === 'overview' && (
+        <>
+          <div className="cards-grid">
+            {stats.map((stat, index) => (
+              <StatCard key={stat.label} index={index + 1} {...stat} />
             ))}
           </div>
-        </section>
+
+          {expiryAlerts.length > 0 && (
+            <section className="section-card expiry-alert-panel">
+              <div className="section-header">
+                <div>
+                  <h2><AlertTriangle /> Expired Product Alert</h2>
+                  <p>These products are expired or will expire within three months.</p>
+                </div>
+                <Link className="btn-outline" href="/products">Review Products</Link>
+              </div>
+              {message && <div className="front-desk-message">{message}</div>}
+              <div className="expiry-alert-list">
+                {expiryAlerts.map(({ product, expiry }) => (
+                  <div className="expiry-alert-item" key={`${product.sku}-${product.id}`}>
+                    <div>
+                      <strong>{product.name}</strong>
+                      <span>{product.sku} · {product.stock || 0} in stock</span>
+                    </div>
+                    <div>
+                      <span className="expiry-alert-status"><Clock3 /> {expiry.status}</span>
+                      <strong>{expiry.expiryDate.toLocaleDateString()}</strong>
+                    </div>
+                    <button className="btn-outline product-row-button waste-action-button" type="button" onClick={() => moveProductToWaste(product, expiry)}>
+                      <Recycle />
+                      Move to Waste
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="section-card">
+            <div className="section-header">
+              <h2>Recent Orders</h2>
+              <Link className="btn-outline" href="/orders">View All Orders →</Link>
+            </div>
+            <RecentOrdersTable orders={recentOrders} />
+          </section>
+
+          <div className="insight-text">
+            <LineChart />
+            <strong>Flexi Insight:</strong> {bestProduct
+              ? `${bestProduct.name} is the current top seller with ${bestProduct.soldCount || 0} units moved.`
+              : "Sales insights will appear here as transactions are recorded."}
+          </div>
+        </>
       )}
 
-      <section className="section-card">
-        <div className="section-header">
-          <h2>Recent Orders</h2>
-          <Link className="btn-outline" href="/orders">View All Orders →</Link>
-        </div>
-        <RecentOrdersTable orders={recentOrders} />
-      </section>
-
-      <div className="insight-text">
-        <LineChart />
-        <strong>Flexi Insight:</strong> {bestProduct
-          ? `${bestProduct.name} is the current top seller with ${bestProduct.soldCount || 0} units moved.`
-          : "Sales insights will appear here as transactions are recorded."}
-      </div>
+      {activeTab === 'outlets' && (
+        <OutletManager />
+      )}
     </>
   );
 }

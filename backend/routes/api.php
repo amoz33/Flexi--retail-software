@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OutletController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SaleController;
 use App\Http\Controllers\Api\StaffController;
@@ -35,6 +36,17 @@ Route::middleware('auth.bearer')->prefix('staff')->group(function () {
     Route::post('/{staff}/reset-password', [StaffController::class, 'resetPassword']);
 });
 
+// Outlet management (admin only)
+Route::middleware('auth.bearer')->prefix('outlets')->group(function () {
+    Route::get('/', [OutletController::class, 'index']);
+    Route::post('/', [OutletController::class, 'store']);
+    Route::get('/{outlet}', [OutletController::class, 'show']);
+    Route::put('/{outlet}', [OutletController::class, 'update']);
+    Route::delete('/{outlet}', [OutletController::class, 'destroy']);
+    Route::patch('/{outlet}/status', [OutletController::class, 'toggleStatus']);
+    Route::get('/{outlet}/statistics', [OutletController::class, 'statistics']);
+});
+
 Route::middleware('auth.bearer')->prefix('products')->group(function () {
     Route::get('/', [ProductController::class, 'index']);
     Route::post('/', [ProductController::class, 'store']);
@@ -42,6 +54,9 @@ Route::middleware('auth.bearer')->prefix('products')->group(function () {
     Route::put('/{product}', [ProductController::class, 'update']);
     Route::delete('/{product}', [ProductController::class, 'destroy']);
 });
+
+// Public product listing for customers (only frontDeskVisible products)
+Route::get('/products/customer', [ProductController::class, 'customerIndex']);
 
 Route::post('/orders', [OrderController::class, 'store']);
 Route::get('/orders/customer', [OrderController::class, 'customerOrders']);
@@ -82,4 +97,19 @@ Route::middleware('auth.bearer')->prefix('equipment')->group(function () {
 Route::middleware('auth.bearer')->prefix('waste')->group(function () {
     Route::get('/', [WasteController::class, 'index']);
     Route::post('/', [WasteController::class, 'store']);
+});
+
+// Cart API - public for shopping
+Route::prefix('cart')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\CartController::class, 'get']);
+    Route::put('/', [\App\Http\Controllers\Api\CartController::class, 'update']);
+    Route::delete('/', [\App\Http\Controllers\Api\CartController::class, 'clear']);
+    Route::post('/sync', [\App\Http\Controllers\Api\CartController::class, 'sync']);
+});
+
+// Payment API
+Route::prefix('payments')->group(function () {
+    Route::post('/initialize', [\App\Http\Controllers\Api\PaymentController::class, 'initialize']);
+    Route::get('/verify/{reference}', [\App\Http\Controllers\Api\PaymentController::class, 'verify']);
+    Route::post('/webhook', [\App\Http\Controllers\Api\PaymentController::class, 'webhook']);
 });
