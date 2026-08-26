@@ -9,7 +9,7 @@ class Sale extends Model
     protected $fillable = [
         'sale_number', 'user_id', 'cashier_name', 'customer_name',
         'customer_phone', 'payment_method', 'items',
-        'subtotal', 'discount', 'total',
+        'subtotal', 'discount', 'total', 'outlet_id',
     ];
 
     protected $casts = [

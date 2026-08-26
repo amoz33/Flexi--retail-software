@@ -16,7 +16,7 @@ class SaleController extends Controller
         $user = $request->user();
         $isAdmin = $user && $user->role === 'Admin';
 
-        $query = Sale::orderByDesc('created_at');
+        $query = $this->scopeToOutlet(Sale::query(), $request)->orderByDesc('created_at');
 
         if (!$isAdmin) {
             $query->where('user_id', $user ? $user->id : 0);
@@ -60,7 +60,10 @@ class SaleController extends Controller
             $subtotal = 0;
 
             foreach ($data['items'] as $item) {
-                $product = Product::where('id', $item['productId'])->lockForUpdate()->first();
+                $product = $this->scopeToOutlet(Product::query(), $request)
+                    ->where('id', $item['productId'])
+                    ->lockForUpdate()
+                    ->first();
 
                 if (!$product) {
                     abort(response()->json([
@@ -105,6 +108,7 @@ class SaleController extends Controller
                 'subtotal' => $subtotal,
                 'discount' => $discount,
                 'total' => $subtotal - $discount,
+                'outlet_id' => $this->requestedOutletId($request),
             ]);
 
             return $sale;

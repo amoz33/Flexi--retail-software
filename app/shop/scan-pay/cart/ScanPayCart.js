@@ -1,414 +1,114 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, Landmark, Minus, ReceiptText, ScanLine, ShoppingCart, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import DataTable from "../../../components/DataTable";
+import { Banknote, CreditCard, Minus, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { formatNaira } from "../../../data";
-import { createPaymentReference, initiatePayment, isPaystackConfigured } from "../../../lib/paystack";
-import { apiFetch } from "../../../lib/api";
 
-const homeOrdersStorageKey = "retail-home-orders";
-const customerLookupStorageKey = "retail-customer-order-lookup";
-const receiptStorageKey = "retail-last-receipt";
+const demoProducts = [
+  { id: 1, name: "iPhone 14 Pro", sku: "APL-14PRO", price: 850000, stock: 12 },
+  { id: 2, name: "Samsung Galaxy S23", sku: "SSG-S23", price: 720000, stock: 8 },
+  { id: 3, name: "Premium Rice 5kg", sku: "GRC-RICE5", price: 8500, stock: 45 }
+];
 
 export default function ScanPayCart() {
-  const [cartItems, setCartItems] = useState([]);
-  const [selectedCartKeys, setSelectedCartKeys] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [paymentChannel, setPaymentChannel] = useState("card");
-  const [message, setMessage] = useState("");
-  const [paying, setPaying] = useState(false);
+  const [cart, setCart] = useState({
+    1: 1,
+    3: 2
+  });
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
 
-  const selectedItems = useMemo(() => (
-    cartItems.filter((item) => selectedCartKeys.includes(item.cartKey))
-  ), [cartItems, selectedCartKeys]);
+  const items = useMemo(() => demoProducts
+    .filter((product) => cart[product.id])
+    .map((product) => ({
+      ...product,
+      quantity: Number(cart[product.id] || 0)
+    })), [cart]);
 
-  const totals = useMemo(() => {
-    const subtotal = selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    return {
-      subtotal,
-      total: subtotal,
-      count: selectedItems.reduce((sum, item) => sum + item.quantity, 0)
-    };
-  }, [selectedItems]);
+  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+  const deliveryFee = subtotal > 0 ? 2500 : 0;
+  const total = subtotal + deliveryFee;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCart() {
-      try {
-        const data = await apiFetch("/cart");
-        if (!cancelled) {
-          setCartItems(data.cart?.items || []);
-          setSelectedCartKeys((data.cart?.items || []).map((item) => item.cartKey));
-        }
-      } catch {
-        // Silently fail for cart loading
-        if (!cancelled) {
-          setCartItems([]);
-          setSelectedCartKeys([]);
-        }
-      }
-    }
-
-    async function loadProducts() {
-      try {
-        const data = await apiFetch("/products/customer");
-        if (!cancelled) setProducts(data.products || []);
-      } catch {
-        if (!cancelled) setProducts([]);
-      }
-    }
-
-    loadCart();
-    loadProducts();
-    return () => { cancelled = true; };
-  }, []);
-
-  async function saveCart(nextItems) {
-    try {
-      await apiFetch("/cart", {
-        method: "PUT",
-        body: { items: nextItems.map(item => ({
-          product_id: item.id,
-          quantity: item.quantity
-        })) }
-      });
-      setCartItems(nextItems);
-      setSelectedCartKeys((keys) => keys.filter((key) => nextItems.some((item) => item.cartKey === key)));
-    } catch (error) {
-      console.error("Failed to save cart:", error);
-    }
-  }
-
-  function updateQuantity(cartKey, quantity) {
-    const nextItems = cartItems.map((item) => (
-      item.cartKey === cartKey ? { ...item, quantity: Math.max(1, Math.min(item.stock, Number(quantity || 1))) } : item
-    ));
-    saveCart(nextItems);
-  }
-
-  function removeCartItem(cartKey) {
-    const nextItems = cartItems.filter((item) => item.cartKey !== cartKey);
-    saveCart(nextItems);
-  }
-
-  function toggleCartItem(cartKey) {
-    setSelectedCartKeys((keys) => (
-      keys.includes(cartKey) ? keys.filter((key) => key !== cartKey) : [...keys, cartKey]
-    ));
-  }
-
-  function toggleAllCartItems() {
-    setSelectedCartKeys((keys) => (
-      keys.length === cartItems.length ? [] : cartItems.map((item) => item.cartKey)
-    ));
-  }
-
-  function buildPaidOrder(items) {
-    const reference = createPaymentReference("SCAN");
-    const createdAt = new Date().toLocaleString();
-    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-    return {
-      id: reference,
-      reference,
-      customerName: customerName.trim() || "Walk-in Customer",
-      phone: customerPhone.trim(),
-      email: customerEmail.trim(),
-      deliveryOption: "Scan and Pay Pickup",
-      address: "Paid pickup at store",
-      deliveryNote: "Customer scanned/searched and paid before pickup.",
-      paymentMethod: paymentChannel === "card" ? "Card" : "Transfer",
-      paymentChannel,
-      paymentStatus: "Paid",
-      items,
-      subtotal,
-      deliveryFee: 0,
-      total: subtotal,
-      status: "Pending Pickup",
-      deliveryStatus: "Ready for Store Pickup",
-      createdAt
-    };
-  }
-
-  function saveOrder(order) {
-    const savedOrders = localStorage.getItem(homeOrdersStorageKey);
-    let orders = [];
-
-    try {
-      orders = savedOrders ? JSON.parse(savedOrders) : [];
-    } catch {
-      orders = [];
-    }
-
-    localStorage.setItem(homeOrdersStorageKey, JSON.stringify([order, ...orders]));
-  }
-
-  function saveReceipt(order) {
-    const receipt = {
-      id: order.id.replace("SCAN", "RCT"),
-      customerName: order.customerName,
-      customerPhone: order.phone,
-      paymentMethod: order.paymentMethod,
-      paymentReference: order.reference,
-      items: order.items,
-      subtotal: order.subtotal,
-      discount: 0,
-      total: order.total,
-      cashier: "Customer Scan Pay",
-      createdAt: order.createdAt
-    };
-
-    localStorage.setItem(receiptStorageKey, JSON.stringify(receipt));
-  }
-
-  function rememberCustomerLookup(order) {
-    localStorage.setItem(customerLookupStorageKey, JSON.stringify({
-      email: order.email || "",
-      phone: order.phone || ""
-    }));
-  }
-
-  async function saveBackendOrder(order) {
-    const data = await apiFetch("/orders", {
-      method: "POST",
-      body: {
-        source: "Scan & Pay",
-        customer: {
-          name: order.customerName,
-          phone: order.phone,
-          email: order.email,
-          address: ""
-        },
-        delivery_option: order.deliveryOption,
-        delivery_note: order.deliveryNote,
-        payment_method: order.paymentMethod,
-        payment_status: order.paymentStatus,
-        items: order.items,
-        subtotal: order.subtotal,
-        delivery_fee: order.deliveryFee,
-        total: order.total
-      }
+  function updateQuantity(productId, nextQuantity) {
+    const quantity = Math.max(0, Number(nextQuantity) || 0);
+    setCart((currentCart) => {
+      const nextCart = { ...currentCart };
+      if (!quantity) delete nextCart[productId];
+      else nextCart[productId] = quantity;
+      return nextCart;
     });
-
-    return data.order;
   }
 
-  function saveProductsAfterPayment(items) {
-    setProducts((currentProducts) => currentProducts.map((product) => {
-      const cartItem = items.find((item) => item.id === product.id && item.sku === product.sku);
-      if (!cartItem) return product;
-
-      return {
-        ...product,
-        stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity),
-        soldCount: Number(product.soldCount || 0) + cartItem.quantity
-      };
-    }));
-  }
-
-  async function payForCart(event) {
-    event.preventDefault();
-
-    if (!cartItems.length) {
-      setMessage("Add at least one item before paying.");
-      return;
-    }
-
-    if (!selectedItems.length) {
-      setMessage("Select at least one cart item before paying.");
-      return;
-    }
-
-    if (!customerEmail.trim()) {
-      setMessage("Enter customer email before payment.");
-      return;
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(customerEmail.trim())) {
-      setMessage("Please enter a valid email address.");
-      return;
-    }
-
-    const unavailableItem = selectedItems.find((item) => item.quantity > Number(products.find((product) => product.id === item.id && product.sku === item.sku)?.stock || item.stock || 0));
-    if (unavailableItem) {
-      setMessage(`Only ${unavailableItem.stock} ${unavailableItem.name} available.`);
-      return;
-    }
-
-    // Check if Paystack is configured
-    if (!isPaystackConfigured()) {
-      setMessage("Payment system is not configured. Please contact support.");
-      return;
-    }
-
-    const order = buildPaidOrder(selectedItems);
-    setPaying(true);
-    setMessage("Processing payment...");
-
-    try {
-      // Generate payment reference
-      const paymentReference = createPaymentReference("SCAN");
-      
-      // Initiate Paystack payment
-      await initiatePayment({
-        email: customerEmail.trim(),
-        amount: order.total,
-        reference: paymentReference,
-        metadata: {
-          order_id: order.id,
-          customer_name: order.customerName,
-          customer_phone: order.phone,
-          delivery_option: order.deliveryOption,
-          items_count: order.items.length,
-          source: "Scan & Pay"
-        },
-        onSuccess: async (paymentResponse) => {
-          // Payment successful, create order
-          try {
-            const updatedOrder = {
-              ...order,
-              paymentMethod: "Paystack",
-              paymentStatus: "Paid",
-              paymentReference: paymentReference,
-              paymentChannel: "paystack"
-            };
-
-            const backendOrder = await saveBackendOrder(updatedOrder);
-            const syncedOrder = { ...updatedOrder, ...backendOrder };
-            saveProductsAfterPayment(order.items);
-            saveOrder(syncedOrder);
-            saveReceipt(syncedOrder);
-            rememberCustomerLookup(order);
-            saveCart(cartItems.filter((item) => !selectedCartKeys.includes(item.cartKey)));
-            setMessage(`Payment successful! Receipt is ready for customer and cashier.`);
-          } catch (error) {
-            setMessage(`Payment successful but order creation failed: ${error.message}`);
-          }
-          setPaying(false);
-        },
-        onClose: () => {
-          setMessage("Payment cancelled. Order not placed.");
-          setPaying(false);
-        }
-      });
-    } catch (error) {
-      setMessage(`Payment initialization failed: ${error.message}`);
-      setPaying(false);
-    }
+  function removeItem(productId) {
+    updateQuantity(productId, 0);
   }
 
   return (
-    <>
-      <section className="section-card">
-        <div className="section-header product-table-header">
-          <div>
-            <h2><ShoppingCart /> Scanned Cart</h2>
-            <p>{totals.count} selected item{totals.count === 1 ? "" : "s"} ready for payment</p>
-          </div>
-          <div className="receipt-actions">
-            <Link className="btn-outline" href="/shop/scan-pay"><ScanLine /> Scan Items</Link>
-            <Link className="btn-outline" href="/shop/scan-pay/receipt"><ReceiptText /> Receipt</Link>
-          </div>
+    <section className="section-card">
+      <div className="section-header product-table-header">
+        <div>
+          <h2>Scan Pay Cart</h2>
+          <p>{items.length} item{items.length === 1 ? "" : "s"} selected</p>
         </div>
+      </div>
 
-        <div className="cashier-panel">
-          {message && <div className="front-desk-message">{message}</div>}
+      <div className="cashier-panel">
+        {items.length === 0 ? (
+          <div className="empty-table-cell">Your cart is empty. Add products from the Scan & Pay page.</div>
+        ) : (
+          items.map((item) => (
+            <div key={item.id} className="field-group" style={{
+              border: "1px solid rgba(201,160,32,0.22)",
+              borderRadius: "18px",
+              padding: "16px",
+              background: "rgba(255,255,255,0.6)",
+              gap: "8px"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.sku}</span>
+                </div>
+                <button className="icon-button" type="button" onClick={() => removeItem(item.id)} aria-label={`Remove ${item.name}`}>
+                  <Trash2 />
+                </button>
+              </div>
 
-          <DataTable
-            columns={["Pay", "Product", "SKU", "Price", "Qty", "Line Total", "Remove"]}
-            rows={cartItems}
-            rowKey={(item) => item.cartKey}
-            emptyMessage="No scanned items yet."
-            tableClassName="product-data-table cashier-cart-table"
-            renderRow={(item) => (
-              <>
-                <td>
-                  <label className="cart-pay-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={selectedCartKeys.includes(item.cartKey)}
-                      onChange={() => toggleCartItem(item.cartKey)}
-                      aria-label={`Select ${item.name} for payment`}
-                    />
-                    <span />
-                  </label>
-                </td>
-                <td><strong>{item.name}</strong></td>
-                <td><span className="order-id">{item.sku}</span></td>
-                <td className="gold-text">{formatNaira(item.price)}</td>
-                <td>
-                  <div className="front-desk-sale-controls">
-                    <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.cartKey, item.quantity - 1)}><Minus /></button>
-                    <input type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => updateQuantity(item.cartKey, event.target.value)} />
-                    <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.cartKey, item.quantity + 1)}>+</button>
-                  </div>
-                </td>
-                <td className="gold-text">{formatNaira(item.price * item.quantity)}</td>
-                <td><button className="icon-button" type="button" onClick={() => removeCartItem(item.cartKey)} aria-label={`Remove ${item.name}`}><Trash2 /></button></td>
-              </>
-            )}
-          />
+              <div className="front-desk-sale-controls">
+                <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.id, item.quantity - 1)}><Minus /></button>
+                <input type="number" min="0" value={item.quantity} onChange={(event) => updateQuantity(item.id, event.target.value)} />
+                <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus /></button>
+              </div>
 
-          {!!cartItems.length && (
-            <div className="cart-selection-summary">
-              <button className="btn-outline" type="button" onClick={toggleAllCartItems}>
-                {selectedCartKeys.length === cartItems.length ? "Clear Selection" : "Select All"}
-              </button>
-              <span>{selectedItems.length} of {cartItems.length} product{cartItems.length === 1 ? "" : "s"} selected for payment</span>
+              <strong className="gold-text">{formatNaira(item.price * item.quantity)}</strong>
             </div>
-          )}
+          ))
+        )}
 
-          <form className="cashier-total-panel scan-pay-total-panel" onSubmit={payForCart}>
-            <div className="form-grid scan-pay-customer-grid">
-              <label className="field-group">
-                <span>Name</span>
-                <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name" />
-              </label>
-              <label className="field-group">
-                <span>Phone</span>
-                <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+234..." />
-              </label>
-              <label className="field-group">
-                <span>Email</span>
-                <input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="customer@email.com" required />
-              </label>
-            </div>
-
-            <div className="scan-pay-payment-options" role="group" aria-label="Payment channel">
-              <button
-                className={paymentChannel === "card" ? "active" : ""}
-                type="button"
-                onClick={() => setPaymentChannel("card")}
-              >
-                <CreditCard /> Card
+        <div className="cashier-total-panel">
+          <div className="field-group">
+            <span>Payment Method</span>
+            <div className="front-desk-payment-options" role="group" aria-label="Payment method">
+              <button className={paymentMethod === "Cash" ? "active" : ""} type="button" onClick={() => setPaymentMethod("Cash")}>
+                <Banknote /> Cash
               </button>
-              <button
-                className={paymentChannel === "bank_transfer" ? "active" : ""}
-                type="button"
-                onClick={() => setPaymentChannel("bank_transfer")}
-              >
-                <Landmark /> Transfer
+              <button className={paymentMethod === "POS" ? "active" : ""} type="button" onClick={() => setPaymentMethod("POS")}>
+                <CreditCard /> POS
               </button>
             </div>
+          </div>
 
-            <div className="cashier-total-lines">
-              <div><span>Subtotal</span><strong>{formatNaira(totals.subtotal)}</strong></div>
-              <div className="cashier-grand-total"><span>Total</span><strong>{formatNaira(totals.total)}</strong></div>
-            </div>
-            <button className="btn-gold cashier-checkout-button" type="submit" disabled={!selectedItems.length || paying}>
-              <ShoppingCart /> {paying ? "Processing..." : "Pay"}
-            </button>
-          </form>
+          <div className="cashier-total-lines">
+            <div><span>Subtotal</span><strong>{formatNaira(subtotal)}</strong></div>
+            <div><span>Delivery</span><strong>{formatNaira(deliveryFee)}</strong></div>
+            <div className="cashier-grand-total"><span>Total</span><strong>{formatNaira(total)}</strong></div>
+          </div>
+
+          <Link className="btn-gold cashier-checkout-button" href="/shop/scan-pay/callback">
+            Pay {formatNaira(total)}
+          </Link>
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

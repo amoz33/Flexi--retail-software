@@ -170,7 +170,8 @@ export const orders = [
 ];
 
 export function formatNaira(value) {
-  return `₦${value.toLocaleString()}`;
+  const num = Number(value || 0);
+  return `₦${num.toLocaleString()}`;
 }
 
 export function calcMonthlyIncome() {

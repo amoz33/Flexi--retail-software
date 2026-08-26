@@ -62,7 +62,7 @@ function getHomeForRole(role, allowedPages = []) {
   return "/dashboard";
 }
 
-export default function Sidebar({ role, allowedPages = [] }) {
+export default function Sidebar({ role, allowedPages = [], activeOutlet }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -122,6 +122,15 @@ export default function Sidebar({ role, allowedPages = [] }) {
         </nav>
 
         <div className="nav-footer">
+          {activeOutlet && (
+            <div className="active-outlet-sidebar">
+              <Store />
+              <span>
+                <strong>{activeOutlet.name}</strong>
+                <small>{activeOutlet.code}{activeOutlet.city ? ` · ${activeOutlet.city}` : ""}</small>
+              </span>
+            </div>
+          )}
           <div><Store /> <span>{role || "Staff"} Access</span></div>
           <div><Gem /> <span>Flexi Retail Software</span></div>
           <div><Sparkles /> <span>Real-time Edge</span></div>

@@ -17,7 +17,7 @@ class EquipmentController extends Controller
         }
 
         return response()->json([
-            'equipment' => EquipmentItem::orderByDesc('created_at')->get()->map(function (EquipmentItem $item) {
+            'equipment' => $this->scopeToOutlet(EquipmentItem::query(), $request)->orderByDesc('created_at')->get()->map(function (EquipmentItem $item) {
                 return $this->equipmentPayload($item);
             }),
         ]);
@@ -45,6 +45,7 @@ class EquipmentController extends Controller
             'quantity' => $data['quantity'] ?? 1,
             'status' => $data['status'] ?? 'Working',
             'note' => $data['note'] ?? null,
+            'outlet_id' => $this->requestedOutletId($request),
         ]);
 
         return response()->json(['item' => $this->equipmentPayload($item)], 201);

@@ -5,13 +5,17 @@ import { useEffect, useState } from "react";
 import DataTable from "../components/DataTable";
 import { apiFetch } from "../lib/api";
 
+const equipmentStorageKey = "retail-equipment-inventory";
+const wasteStorageKey = "retail-waste-register";
+
 const emptyEquipment = {
   name: "",
   category: "",
   location: "",
   quantity: "1",
   status: "Working",
-  note: ""
+  note: "",
+  barcode: ""
 };
 
 function normalizeEquipment(item) {
@@ -20,7 +24,16 @@ function normalizeEquipment(item) {
     ...item,
     quantity: Number(item.quantity || 1),
     status: validStatuses.includes(item.status) ? item.status : "Working",
-    note: item.note || ""
+    note: item.note || "",
+    barcode: item.barcode || ""
+  };
+}
+
+function normalizeWaste(item) {
+  return {
+    ...item,
+    quantity: Math.max(1, Number(item.quantity || 1)),
+    recordedAt: item.recordedAt || new Date().toLocaleString()
   };
 }
 
@@ -39,10 +52,9 @@ function equipmentMatchesQuery(item, query) {
   return searchableText.includes(query.toLowerCase());
 }
 
-export default function EquipmentInventoryManager() {
-  const [equipment, setEquipment] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+export default function EquipmentInventoryManager({ initialEquipment = [], outletId = null }) {
+  const storageKey = outletId ? `${equipmentStorageKey}-${outletId}` : equipmentStorageKey;
+  const [equipment, setEquipment] = useState(initialEquipment.map(normalizeEquipment));
   const [formEquipment, setFormEquipment] = useState(emptyEquipment);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
@@ -56,98 +68,93 @@ export default function EquipmentInventoryManager() {
     async function loadEquipment() {
       try {
         const data = await apiFetch("/equipment");
-        if (!cancelled) setEquipment((data.equipment || []).map(normalizeEquipment));
-      } catch (error) {
-        if (!cancelled) setMessage(error.message || "Could not load assets.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && Array.isArray(data.equipment)) setEquipment(data.equipment.map(normalizeEquipment));
+      } catch {
+        const savedEquipment = localStorage.getItem(storageKey);
+        if (!savedEquipment) return;
+        try {
+          if (!cancelled) setEquipment(JSON.parse(savedEquipment).map(normalizeEquipment));
+        } catch {
+          localStorage.removeItem(storageKey);
+        }
       }
     }
 
     loadEquipment();
     return () => { cancelled = true; };
-  }, []);
+  }, [storageKey]);
+
+  function saveEquipment(nextEquipment) {
+    const normalizedEquipment = nextEquipment.map(normalizeEquipment);
+    localStorage.setItem(storageKey, JSON.stringify(normalizedEquipment));
+    return normalizedEquipment;
+  }
 
   function updateField(field, value) {
     setFormEquipment((item) => ({ ...item, [field]: value }));
   }
 
-  async function addEquipment(event) {
+  function addEquipment(event) {
     event.preventDefault();
-    setSaving(true);
+    const item = normalizeEquipment({
+      ...formEquipment,
+      id: Date.now(),
+      name: formEquipment.name.trim(),
+      location: formEquipment.location.trim(),
+      note: formEquipment.note.trim()
+    });
 
-    try {
-      const data = await apiFetch("/equipment", {
-        method: "POST",
-        body: {
-          name: formEquipment.name.trim(),
-          category: formEquipment.category.trim(),
-          location: formEquipment.location.trim(),
-          quantity: Math.max(1, Number(formEquipment.quantity || 1)),
-          status: formEquipment.status,
-          note: formEquipment.note.trim() || null
-        }
-      });
-
-      setEquipment((currentEquipment) => [normalizeEquipment(data.item), ...currentEquipment]);
-      setFormEquipment(emptyEquipment);
-      setMessage(`${data.item.name} has been added to asset management.`);
-    } catch (error) {
-      setMessage(error.message || "Asset could not be saved.");
-    } finally {
-      setSaving(false);
-    }
+    apiFetch("/equipment", { method: "POST", body: item })
+      .then((data) => setEquipment((currentEquipment) => saveEquipment([data.item, ...currentEquipment])))
+      .catch(() => setEquipment((currentEquipment) => saveEquipment([item, ...currentEquipment])));
+    setFormEquipment(emptyEquipment);
+    setMessage(`${item.name} has been added to asset management.`);
   }
 
-  async function updateEquipmentStatus(itemId, status) {
-    try {
-      const data = await apiFetch(`/equipment/${itemId}`, { method: "PUT", body: { status } });
-      setEquipment((currentEquipment) => currentEquipment.map((item) => (
-        item.id === itemId ? normalizeEquipment(data.item) : item
-      )));
-    } catch (error) {
-      setMessage(error.message || "Asset status could not be updated.");
-    }
+  function updateEquipmentStatus(itemId, status) {
+    apiFetch(`/equipment/${itemId}`, { method: "PUT", body: { status } }).catch(() => {});
+    setEquipment((currentEquipment) => saveEquipment(currentEquipment.map((item) => (
+      item.id === itemId ? { ...item, status } : item
+    ))));
   }
 
   function updateEquipmentNote(itemId, note) {
-    setEquipment((currentEquipment) => currentEquipment.map((item) => (
+    apiFetch(`/equipment/${itemId}`, { method: "PUT", body: { note } }).catch(() => {});
+    setEquipment((currentEquipment) => saveEquipment(currentEquipment.map((item) => (
       item.id === itemId ? { ...item, note } : item
-    )));
+    ))));
   }
 
-  async function saveEquipmentNote(itemId, note) {
-    try {
-      await apiFetch(`/equipment/${itemId}`, { method: "PUT", body: { note } });
-    } catch (error) {
-      setMessage(error.message || "Note could not be saved.");
-    }
-  }
-
-  async function deleteEquipment(itemId) {
+  function deleteEquipment(itemId) {
     const item = equipment.find((currentItem) => currentItem.id === itemId);
-    if (!item) return;
-    if (!window.confirm(`Delete ${item.name}? This cannot be undone.`)) return;
-
-    try {
-      await apiFetch(`/equipment/${itemId}`, { method: "DELETE" });
-      setEquipment((currentEquipment) => currentEquipment.filter((currentItem) => currentItem.id !== itemId));
-      setMessage(`${item.name} has been removed.`);
-    } catch (error) {
-      setMessage(error.message || "Asset could not be deleted.");
-    }
+    apiFetch(`/equipment/${itemId}`, { method: "DELETE" }).catch(() => {});
+    setEquipment((currentEquipment) => saveEquipment(currentEquipment.filter((currentItem) => currentItem.id !== itemId)));
+    setMessage(item ? `${item.name} has been removed.` : "");
   }
 
-  async function moveAssetToWaste(item) {
+  function moveAssetToWaste(item) {
+    const record = normalizeWaste({
+      id: Date.now(),
+      itemName: item.name,
+      itemType: "Asset",
+      reason: item.status === "Broken" ? "Broken" : "Damaged",
+      quantity: item.quantity,
+      action: "Quarantine",
+      note: item.note || `Moved from Asset Management with status: ${item.status}.`,
+      recordedAt: new Date().toLocaleString()
+    });
+
+    let wasteRecords = [];
     try {
-      const data = await apiFetch(`/equipment/${item.id}/waste`, { method: "POST" });
-      setEquipment((currentEquipment) => currentEquipment.map((asset) => (
-        asset.id === item.id ? normalizeEquipment(data.item) : asset
-      )));
-      setMessage(`${item.name} has been moved to the waste register.`);
-    } catch (error) {
-      setMessage(error.message || "Asset could not be moved to waste.");
+      wasteRecords = JSON.parse(localStorage.getItem(wasteStorageKey) || "[]");
+    } catch {
+      wasteRecords = [];
     }
+    localStorage.setItem(wasteStorageKey, JSON.stringify([record, ...wasteRecords.map(normalizeWaste)]));
+    setEquipment((currentEquipment) => saveEquipment(currentEquipment.map((asset) => (
+      asset.id === item.id ? { ...asset, status: "Disposed" } : asset
+    ))));
+    setMessage(`${item.name} has been moved to the waste register.`);
   }
 
   return (
@@ -164,6 +171,16 @@ export default function EquipmentInventoryManager() {
           {message && <div className="form-message">{message}</div>}
 
           <div className="form-grid inventory-form-grid">
+            <label className="field-group field-span-2">
+              <span>Barcode</span>
+              <input
+                type="text"
+                value={formEquipment.barcode}
+                onChange={(event) => updateField("barcode", event.target.value)}
+                placeholder="Scan or type asset barcode"
+                autoComplete="off"
+              />
+            </label>
             <label className="field-group">
               <span>Name</span>
               <input
@@ -229,7 +246,7 @@ export default function EquipmentInventoryManager() {
 
           <div className="form-actions">
             <button className="btn-outline" type="button" onClick={() => setFormEquipment(emptyEquipment)}>Clear</button>
-            <button className="btn-gold" type="submit" disabled={saving}><Save /> {saving ? "Saving..." : "Save Asset"}</button>
+            <button className="btn-gold" type="submit"><Save /> Save Asset</button>
           </div>
         </form>
       </section>
@@ -238,7 +255,7 @@ export default function EquipmentInventoryManager() {
         <div className="section-header product-table-header">
           <div>
             <h2><Archive /> Asset Register</h2>
-            <p>{loading ? "Loading assets..." : `${filteredEquipment.length} of ${equipment.length} asset${equipment.length === 1 ? "" : "s"} | ${faultyCount} faulty`}</p>
+            <p>{filteredEquipment.length} of {equipment.length} asset{equipment.length === 1 ? "" : "s"} | {faultyCount} faulty</p>
           </div>
 
           <label className="product-search">
@@ -259,14 +276,15 @@ export default function EquipmentInventoryManager() {
         </div>
 
         <DataTable
-          columns={["Asset", "Category", "Location", "Qty", "Status", "Note", "Actions"]}
+          columns={["Asset", "Barcode", "Category", "Location", "Qty", "Status", "Note", "Actions"]}
           rows={filteredEquipment}
           rowKey={(item) => item.id}
-          emptyMessage={loading ? "Loading assets..." : "No assets match your search."}
+          emptyMessage="No assets match your search."
           tableClassName="product-data-table"
           renderRow={(item) => (
             <>
               <td><strong>{item.name}</strong></td>
+              <td><code style={{ fontSize: "12px", backgroundColor: "#f5f5f5", padding: "4px 8px", borderRadius: "3px" }}>{item.barcode || "-"}</code></td>
               <td>{item.category}</td>
               <td>{item.location || "-"}</td>
               <td>{item.quantity}</td>
@@ -279,7 +297,6 @@ export default function EquipmentInventoryManager() {
                 <textarea
                   value={item.note}
                   onChange={(event) => updateEquipmentNote(item.id, event.target.value)}
-                  onBlur={(event) => saveEquipmentNote(item.id, event.target.value)}
                   aria-label={`${item.name} note`}
                   placeholder="Add note"
                 />

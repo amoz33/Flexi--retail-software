@@ -44,7 +44,7 @@ class Outlet extends Model
 
     public function orders()
     {
-        return $this->hasMany(Order::class);
+        return $this->hasMany(RetailOrder::class);
     }
 
     public function sales()
@@ -54,7 +54,7 @@ class Outlet extends Model
 
     public function waste()
     {
-        return $this->hasMany(Waste::class);
+        return $this->hasMany(WasteRecord::class);
     }
 
     public function carts()
@@ -69,6 +69,6 @@ class Outlet extends Model
 
     public function equipment()
     {
-        return $this->hasMany(Equipment::class);
+        return $this->hasMany(EquipmentItem::class);
     }
 }

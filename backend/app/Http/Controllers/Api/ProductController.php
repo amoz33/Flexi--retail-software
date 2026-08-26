@@ -13,12 +13,7 @@ class ProductController extends Controller
         $user = $request->user();
         $isAdmin = $this->isAdmin($request);
         
-        $query = Product::orderBy('name');
-
-        // Filter by outlet if user is assigned to one (non-admin)
-        if ($user && $user->outlet_id && !$isAdmin) {
-            $query->where('outlet_id', $user->outlet_id);
-        }
+        $query = $this->scopeToOutlet(Product::query(), $request)->orderBy('name');
 
         if (!$isAdmin) {
             $query->where('front_desk_visible', true);
@@ -41,11 +36,7 @@ class ProductController extends Controller
         $user = $request->user();
         
         $productData = $this->toColumns($data);
-        
-        // Assign outlet_id from user if available
-        if ($user && $user->outlet_id) {
-            $productData['outlet_id'] = $user->outlet_id;
-        }
+        $productData['outlet_id'] = $this->requestedOutletId($request);
 
         $product = Product::updateOrCreate(
             ['sku' => $data['sku']],

@@ -17,7 +17,7 @@ class VendorTransactionController extends Controller
         }
 
         return response()->json([
-            'transactions' => VendorTransaction::orderByDesc('created_at')->get()->map(function (VendorTransaction $transaction) {
+            'transactions' => $this->scopeToOutlet(VendorTransaction::query(), $request)->orderByDesc('created_at')->get()->map(function (VendorTransaction $transaction) {
                 return $this->transactionPayload($transaction);
             }),
         ]);

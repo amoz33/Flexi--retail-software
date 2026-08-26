@@ -1,6 +1,7 @@
 "use client";
 
-import { Building2, CalendarClock, Clock, Edit, MapPin, Phone, Plus, Store, Trash2, User, X } from "lucide-react";
+import { ArrowUpRight, Building2, CalendarClock, Clock, Edit, MapPin, Phone, Plus, Store, Trash2, User, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 
@@ -156,38 +157,45 @@ export default function OutletManager() {
       <style jsx>{`
         .outlet-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 20px;
-          margin-top: 20px;
+          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+          gap: 16px;
+          margin-top: 24px;
         }
         .outlet-card {
-          border: 1px solid #e5e7eb;
-          border-radius: 8px;
-          padding: 20px;
-          background: white;
-          transition: box-shadow 0.2s;
+          position: relative;
+          overflow: hidden;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 22px;
+          background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+          box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
+          transition: transform .2s, box-shadow .2s, border-color .2s;
         }
         .outlet-card:hover {
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+          transform: translateY(-3px);
+          border-color: #d4a72c;
+          box-shadow: 0 16px 30px rgba(15, 23, 42, .1);
         }
         .outlet-header {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          margin-bottom: 15px;
+          margin-bottom: 18px;
         }
         .outlet-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1f2937;
+          display: block;
+          font-size: 20px;
+          font-weight: 750;
+          color: #172033;
+          margin-bottom: 8px;
         }
         .outlet-code {
           font-size: 12px;
           color: #6b7280;
-          background: #f3f4f6;
+          background: #eef2f7;
           padding: 2px 8px;
-          border-radius: 12px;
-          margin-left: 8px;
+          border-radius: 5px;
+          margin-left: 0;
         }
         .outlet-status {
           display: inline-block;
@@ -198,19 +206,19 @@ export default function OutletManager() {
           margin-left: 8px;
         }
         .status-active {
-          background-color: #10b981;
-          color: white;
+          background-color: #dcfce7;
+          color: #166534;
         }
         .status-inactive {
-          background-color: #ef4444;
-          color: white;
+          background-color: #fee2e2;
+          color: #991b1b;
         }
         .outlet-info {
           display: flex;
           flex-direction: column;
           gap: 8px;
           font-size: 14px;
-          color: #6b7280;
+          color: #64748b;
         }
         .outlet-info-row {
           display: flex;
@@ -220,14 +228,15 @@ export default function OutletManager() {
         .outlet-actions {
           display: flex;
           gap: 8px;
-          margin-top: 15px;
+          margin-top: 22px;
+          flex-wrap: wrap;
         }
         .hours-badge {
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          background: #f0f9ff;
-          color: #0369a1;
+          background: #ecfeff;
+          color: #0e7490;
           padding: 4px 8px;
           border-radius: 6px;
           font-size: 12px;
@@ -248,8 +257,8 @@ export default function OutletManager() {
         .modal-content {
           background: white;
           border-radius: 8px;
-          padding: 24px;
-          max-width: 500px;
+          padding: 28px;
+          max-width: 620px;
           width: 90%;
           max-height: 80vh;
           overflow-y: auto;
@@ -283,7 +292,7 @@ export default function OutletManager() {
             <div className="outlet-card" key={outlet.id}>
               <div className="outlet-header">
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '7px' }}>
                     <span className="outlet-title">{outlet.name}</span>
                     <span className="outlet-code">{outlet.code}</span>
                     <span className={`outlet-status ${outlet.is_active ? 'status-active' : 'status-inactive'}`}>
@@ -325,6 +334,9 @@ export default function OutletManager() {
               </div>
 
               <div className="outlet-actions">
+                <Link className="btn-gold" href={`/outlets/${outlet.id}`}>
+                  <ArrowUpRight size={14} /> Open Workspace
+                </Link>
                 <button className="btn-outline" type="button" onClick={() => startEdit(outlet)}>
                   <Edit size={14} /> Edit
                 </button>

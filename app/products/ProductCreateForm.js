@@ -1,7 +1,7 @@
 "use client";
 
-import { FileSpreadsheet, ImagePlus, Plus, Save, Trash2, Upload } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Barcode, FileSpreadsheet, ImagePlus, Plus, Save, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 const emptyAttribute = { name: "", value: "" };
@@ -57,6 +57,7 @@ function rowToProduct(row, index) {
     attributes: parseAttributes(readValue(row, ["Attributes", "attributes"])),
     variants: parseVariants(readValue(row, ["Variants", "variants"])),
     price: readNumber(row, ["Price", "price", "Base Price", "basePrice"]),
+    costPrice: readNumber(row, ["Cost Price", "costPrice", "Cost"]),
     stock: readNumber(row, ["Stock", "stock"]),
     soldCount: readNumber(row, ["Sold", "soldCount"]),
     revenue: readNumber(row, ["Revenue", "revenue"])
@@ -68,7 +69,8 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
   const [variants, setVariants] = useState([{ ...emptyVariant }]);
   const [imageFiles, setImageFiles] = useState([]);
   const [importMessage, setImportMessage] = useState("");
-  const [expiryType, setExpiryType] = useState("expiryDate");
+  const [scannerActive, setScannerActive] = useState(false);
+  const barcodeInputRef = useRef(null);
 
   function updateAttribute(index, field, value) {
     setAttributes((items) => items.map((item, itemIndex) => (
@@ -90,23 +92,6 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     setVariants((items) => items.length === 1 ? items : items.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  useEffect(() => {
-    const expiryField = document.querySelector('input[name="expiryDate"]');
-    const warrantyField = document.getElementById('warrantyField');
-    
-    if (expiryType === 'warranty') {
-      expiryField.required = false;
-      expiryField.closest('.field-group').style.display = 'none';
-      warrantyField.style.display = 'block';
-      warrantyField.querySelector('select').required = true;
-    } else {
-      expiryField.required = true;
-      expiryField.closest('.field-group').style.display = 'block';
-      warrantyField.style.display = 'none';
-      warrantyField.querySelector('select').required = false;
-    }
-  }, [expiryType]);
-
   function handleImages(event) {
     const files = Array.from(event.target.files || []);
     Promise.all(files.map((file) => new Promise((resolve) => {
@@ -117,43 +102,15 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     }))).then(setImageFiles);
   }
 
-  function handleExpiryTypeChange(event) {
-    setExpiryType(event.target.value);
-  }
-
   function handleSubmit(event) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    
-    // Calculate expiry date based on type
-    let expiryDateValue = "";
-    const expiryTypeValue = formData.get("expiryType");
-    
-    if (expiryTypeValue === "warranty") {
-      const warrantyPeriod = formData.get("warrantyPeriod");
-      const warrantyMonths = {
-        "3months": 3,
-        "6months": 6,
-        "1year": 12,
-        "2years": 24,
-        "lifetime": 120 // 10 years for lifetime
-      };
-      const months = warrantyMonths[warrantyPeriod] || 12;
-      const expiryDate = new Date();
-      expiryDate.setMonth(expiryDate.getMonth() + months);
-      expiryDateValue = expiryDate.toISOString().split('T')[0];
-    } else {
-      expiryDateValue = formData.get("expiryDate") || "";
-    }
-
     const product = {
       id: Date.now(),
       name: formData.get("name")?.trim(),
       sku: formData.get("sku")?.trim(),
       barcode: formData.get("barcode")?.trim(),
-      expiryDate: expiryDateValue,
-      expiryType: expiryTypeValue,
-      warrantyPeriod: expiryTypeValue === "warranty" ? formData.get("warrantyPeriod") : null,
+      expiryDate: formData.get("expiryDate") || "",
       description: formData.get("description")?.trim(),
       images: imageFiles.map((image) => image.src).filter(Boolean),
       attributes: attributes.filter((attribute) => attribute.name || attribute.value),
@@ -171,7 +128,6 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     setAttributes([{ ...emptyAttribute }]);
     setVariants([{ ...emptyVariant }]);
     setImageFiles([]);
-    setExpiryType("expiryDate");
   }
 
   function handleReset() {
@@ -210,7 +166,7 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
       <div className="excel-import-panel">
         <div>
           <h3><FileSpreadsheet /> Import Excel Sheet</h3>
-          <p>Columns should match the table: Name, SKU, Barcode, Expiry Date, Description, Images, Attributes, Variants, Price, and Stock.</p>
+          <p>Columns should include Name, SKU, Expiry Date, Cost Price, Selling Price (or Price), and Stock. Barcode, description, images, attributes, and variants are optional.</p>
         </div>
         <label className="btn-outline excel-upload-button">
           <Upload /> Upload Sheet
@@ -219,6 +175,45 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
       </div>
 
       {importMessage && <div className="form-message">{importMessage}</div>}
+
+      {scannerActive && (
+        <div className="scanner-notice" style={{
+          padding: "12px 16px",
+          backgroundColor: "#e3f2fd",
+          borderLeft: "4px solid #2196f3",
+          marginBottom: "16px",
+          borderRadius: "4px",
+          fontSize: "14px",
+          color: "#1565c0"
+        }}>
+          🔍 Scanner is active. Point your barcode scanner at the screen or position camera over the barcode. Press Enter after scanning.
+        </div>
+      )}
+
+      <div className="asset-barcode-scan-row">
+        <button
+          className="btn-gold asset-scan-toggle"
+          type="button"
+          onClick={() => {
+            setScannerActive((active) => !active);
+            setTimeout(() => barcodeInputRef.current?.focus(), 0);
+          }}
+        >
+          <Barcode /> {scannerActive ? "Scanner Active" : "Enable Scanner"}
+        </button>
+
+        <label className="field-group asset-barcode-field">
+          <span>Barcode</span>
+          <input
+            ref={barcodeInputRef}
+            type="text"
+            name="barcode"
+            placeholder="Scan or type barcode"
+            autoComplete="off"
+            autoFocus={scannerActive}
+          />
+        </label>
+      </div>
 
       <div className="form-grid">
         <label className="field-group">
@@ -232,21 +227,6 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
         </label>
 
         <label className="field-group">
-          <span>Barcode</span>
-          <input type="text" name="barcode" placeholder="0123456789012" />
-        </label>
-
-        <label className="field-group">
-          <span>Price</span>
-          <input type="number" name="price" min="0" placeholder="850000" />
-        </label>
-
-        <label className="field-group">
-          <span>Stock</span>
-          <input type="number" name="stock" min="0" placeholder="12" />
-        </label>
-
-        <label className="field-group">
           <span>Cost Price</span>
           <input type="number" name="costPrice" min="0" placeholder="595000" required />
         </label>
@@ -257,27 +237,13 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
         </label>
 
         <label className="field-group">
-          <span>Expiry Type*</span>
-          <select name="expiryType" value={expiryType} onChange={handleExpiryTypeChange} required>
-            <option value="expiryDate">Expiry Date</option>
-            <option value="warranty">Warranty Period</option>
-          </select>
+          <span>Stock</span>
+          <input type="number" name="stock" min="0" placeholder="12" />
         </label>
 
         <label className="field-group">
-          <span>Expiry Date*</span>
+          <span>Expiry Date</span>
           <input type="date" name="expiryDate" required />
-        </label>
-
-        <label className="field-group" style={{display: 'none'}} id="warrantyField">
-          <span>Warranty Period*</span>
-          <select name="warrantyPeriod">
-            <option value="3months">3 Months</option>
-            <option value="6months">6 Months</option>
-            <option value="1year">1 Year</option>
-            <option value="2years">2 Years</option>
-            <option value="lifetime">Lifetime</option>
-          </select>
         </label>
 
         <label className="field-group field-span-2">
