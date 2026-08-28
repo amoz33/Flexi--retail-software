@@ -26,6 +26,7 @@ class RetailOrder extends Model
         'status',
         'delivery_comment',
         'delivered_confirmed_at',
+        'outlet_id',
     ];
 
     protected $casts = [

@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
+const activeOutletStorageKey = "retail-active-outlet";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 const cashierAllowedRoutes = [
   "/cashier",
   "/front-desk",
@@ -76,6 +77,7 @@ export default function AppShell({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState(null);
+  const [activeOutlet, setActiveOutlet] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
   const isAuthPage = pathname === "/login";
   const homeHref = getHomeForRole(session?.role, session?.allowedPages || []);
@@ -84,6 +86,24 @@ export default function AppShell({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    function loadActiveOutlet() {
+      const storedOutlet = localStorage.getItem(activeOutletStorageKey);
+      if (!storedOutlet) {
+        setActiveOutlet(null);
+        return;
+      }
+
+      try {
+        const parsedOutlet = JSON.parse(storedOutlet);
+        setActiveOutlet(parsedOutlet && typeof parsedOutlet === "object" ? parsedOutlet : null);
+      } catch {
+        setActiveOutlet(null);
+      }
+    }
+
+    loadActiveOutlet();
+    window.addEventListener("active-outlet-changed", loadActiveOutlet);
 
     function clearSession() {
       localStorage.removeItem(sessionStorageKey);
@@ -166,6 +186,7 @@ export default function AppShell({ children }) {
 
     return () => {
       cancelled = true;
+      window.removeEventListener("active-outlet-changed", loadActiveOutlet);
     };
   }, [isAuthPage, pathname, router]);
 
@@ -194,7 +215,7 @@ export default function AppShell({ children }) {
 
   return (
     <div className={`app-wrapper ${isCustomer ? "customer-web-wrapper" : ""}`}>
-      {isCustomer ? <CustomerWebHeader pathname={pathname} onLogout={logout} /> : <Sidebar role={session?.role} allowedPages={session?.allowedPages || []} />}
+      {isCustomer ? <CustomerWebHeader pathname={pathname} onLogout={logout} /> : <Sidebar role={session?.role} allowedPages={session?.allowedPages || []} activeOutlet={activeOutlet} />}
       <main className={`main-content ${isCustomer ? "customer-main-content" : ""}`}>
         {!isCustomer && (
           <nav className="page-navigation" aria-label="Page navigation">

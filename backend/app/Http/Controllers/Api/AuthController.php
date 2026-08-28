@@ -20,7 +20,7 @@ class AuthController extends Controller
         $credentials = $request->validate([
             'email' => ['required', 'email', 'max:255'],
             'password' => ['required', 'string', 'min:8', 'max:255'],
-            'remember' => ['sometimes', 'boolean'],
+            'remember'=> ['sometimes', 'boolean'],
         ]);
 
         $email = Str::lower($credentials['email']);

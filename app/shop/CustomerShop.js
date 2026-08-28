@@ -1,622 +1,124 @@
 "use client";
 
-import Link from "next/link";
-import { History, Minus, PackageCheck, Plus, Search, ShoppingBag, ShoppingCart, Store, Trash2, Truck, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Minus, Plus, Search, ShoppingCart } from "lucide-react";
+import { useMemo, useState } from "react";
 import { formatNaira } from "../data";
-import { apiFetch } from "../lib/api";
-import { createPaymentReference, initiatePayment, isPaystackConfigured } from "../lib/paystack";
 
-const homeOrdersStorageKey = "retail-home-orders";
-const customerLookupStorageKey = "retail-customer-order-lookup";
-const paidPaymentMethods = ["Card Payment", "Bank Transfer", "Online Payment"];
-
-function makeCartKey(product) {
-  return `${product.sku}-${product.id}`;
-}
-
-function productMatchesQuery(product, query) {
-  if (!query) return true;
-
-  const searchableText = [
-    product.name,
-    product.sku,
-    product.category,
-    product.description,
-    product.price
-  ].filter(Boolean).join(" ").toLowerCase();
-
-  return searchableText.includes(query.toLowerCase());
-}
-
-export default function CustomerShop() {
-  const [products, setProducts] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-  const [cartItems, setCartItems] = useState([]);
-  const [homeOrders, setHomeOrders] = useState([]);
+export default function CustomerShop({ initialProducts = [] }) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All");
-  const [message, setMessage] = useState("");
-  const [cartOpen, setCartOpen] = useState(false);
-  const [customer, setCustomer] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    address: "",
-    deliveryNote: "",
-    deliveryOption: "Home Delivery",
-    paymentMethod: "Card Payment"
-  });
+  const [cart, setCart] = useState({});
+  const products = initialProducts || [];
 
-  const visibleProducts = products.filter((product) => product.frontDeskVisible !== false);
-  const categories = ["All", ...Array.from(new Set(visibleProducts.map((product) => product.category).filter(Boolean)))];
+  const filteredProducts = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return products;
+    return products.filter((product) => [
+      product.name,
+      product.sku,
+      product.category,
+      product.description
+    ].filter(Boolean).join(" ").toLowerCase().includes(term));
+  }, [products, query]);
 
-  const filteredProducts = visibleProducts.filter((product) => {
-    const matchesCategory = category === "All" || product.category === category;
-    return matchesCategory && productMatchesQuery(product, query.trim());
-  });
+  const totalItems = Object.values(cart).reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+  const totalPrice = products.reduce((sum, product) => {
+    const quantity = Number(cart[product.id] || 0);
+    return sum + quantity * Number(product.price || 0);
+  }, 0);
 
-  const totals = useMemo(() => {
-    const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const deliveryFee = cartItems.length && customer.deliveryOption === "Home Delivery" ? 1500 : 0;
-
-    return {
-      subtotal,
-      deliveryFee,
-      total: subtotal + deliveryFee,
-      count: cartItems.reduce((sum, item) => sum + item.quantity, 0)
-    };
-  }, [cartItems, customer.deliveryOption]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadProducts() {
-      try {
-        const data = await apiFetch("/products/customer");
-        if (!cancelled) setProducts(data.products || []);
-      } catch (error) {
-        if (!cancelled) setMessage(error.message || "Could not load products.");
-      } finally {
-        if (!cancelled) setLoadingProducts(false);
-      }
-    }
-
-    loadProducts();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCart() {
-      try {
-        const data = await apiFetch("/cart");
-        if (!cancelled) setCartItems(data.cart?.items || []);
-      } catch (error) {
-        // Silently fail for cart loading - use empty cart
-        if (!cancelled) setCartItems([]);
-      }
-    }
-
-    loadCart();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    const savedOrders = localStorage.getItem(homeOrdersStorageKey);
-    if (!savedOrders) return;
-
-    try {
-      setHomeOrders(JSON.parse(savedOrders));
-    } catch {
-      localStorage.removeItem(homeOrdersStorageKey);
-    }
-  }, []);
-
-  function saveHomeOrders(nextOrders) {
-    localStorage.setItem(homeOrdersStorageKey, JSON.stringify(nextOrders));
-    return nextOrders;
-  }
-
-  async function saveCart(nextItems) {
-    try {
-      await apiFetch("/cart", {
-        method: "PUT",
-        body: { items: nextItems.map(item => ({
-          product_id: item.id,
-          quantity: item.quantity
-        })) }
-      });
-    } catch (error) {
-      console.error("Failed to save cart:", error);
-    }
-    return nextItems;
-  }
-
-  function updateCustomerField(field, value) {
-    setCustomer((currentCustomer) => ({ ...currentCustomer, [field]: value }));
-  }
-
-  function updateDeliveryOption(value) {
-    setCustomer((currentCustomer) => ({
-      ...currentCustomer,
-      deliveryOption: value,
-      paymentMethod: value === "Pickup" && ["Pay on Delivery", "POS on Delivery", "Pay at Pickup"].includes(currentCustomer.paymentMethod)
-        ? "Card Payment"
-        : currentCustomer.paymentMethod
-    }));
-  }
-
-  async function addToCart(product) {
-    const stock = Number(product.stock || 0);
-    const cartKey = makeCartKey(product);
-
-    if (stock <= 0) {
-      setMessage(`${product.name} is out of stock.`);
-      return;
-    }
-
-    setCartItems((items) => {
-      const existing = items.find((item) => item.cartKey === cartKey);
-      const nextItems = existing
-        ? items.map((item) => (
-            item.cartKey === cartKey ? { ...item, quantity: Math.min(stock, item.quantity + 1) } : item
-          ))
-        : [{
-            cartKey,
-            id: product.id,
-            name: product.name,
-            sku: product.sku,
-            category: product.category,
-            price: Number(product.price || 0),
-            stock,
-            quantity: 1
-          }, ...items];
-      
-      // Save cart asynchronously
-      saveCart(nextItems);
-      return nextItems;
-    });
-    setMessage(`${product.name} added to cart.`);
-    setCartOpen(true);
-  }
-
-  function updateQuantity(cartKey, quantity) {
-    setCartItems((items) => {
-      const nextItems = items.map((item) => (
-        item.cartKey === cartKey ? { ...item, quantity: Math.max(1, Math.min(item.stock, Number(quantity || 1))) } : item
-      ));
-      saveCart(nextItems);
-      return nextItems;
+  function updateCart(productId, nextQuantity) {
+    const quantity = Math.max(0, Number(nextQuantity) || 0);
+    setCart((currentCart) => {
+      const nextCart = { ...currentCart };
+      if (!quantity) delete nextCart[productId];
+      else nextCart[productId] = quantity;
+      return nextCart;
     });
   }
 
-  function removeCartItem(cartKey) {
-    setCartItems((items) => {
-      const nextItems = items.filter((item) => item.cartKey !== cartKey);
-      saveCart(nextItems);
-      return nextItems;
-    });
-  }
-
-  function rememberCustomerLookup(orderCustomer) {
-    localStorage.setItem(customerLookupStorageKey, JSON.stringify({
-      email: orderCustomer.email || "",
-      phone: orderCustomer.phone || ""
-    }));
-  }
-
-  async function placeOrder(event) {
-    event.preventDefault();
-
-    if (!cartItems.length) {
-      setMessage("Add at least one product before placing an order.");
-      return;
-    }
-
-    if (!customer.email.trim()) {
-      setMessage("Please enter your email address for payment.");
-      return;
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(customer.email.trim())) {
-      setMessage("Please enter a valid email address.");
-      return;
-    }
-
-    const orderDraft = {
-      id: `WEB-${String(Date.now()).slice(-6)}`,
-      customerName: customer.name.trim() || "Customer",
-      phone: customer.phone.trim() || "",
-      email: customer.email.trim().toLowerCase(),
-      deliveryOption: customer.deliveryOption,
-      address: customer.deliveryOption === "Pickup" ? "Paid pickup at store" : customer.address.trim(),
-      deliveryNote: customer.deliveryNote.trim(),
-      paymentMethod: customer.paymentMethod,
-      items: cartItems,
-      subtotal: totals.subtotal,
-      deliveryFee: totals.deliveryFee,
-      total: totals.total,
-      status: "Pending",
-      paymentStatus: "Pending", // Will be updated after payment
-      deliveryStatus: customer.deliveryOption === "Home Delivery" ? "Order Received" : "Ready for Store Pickup",
-      createdAt: new Date().toLocaleString()
-    };
-
-    // Check if Paystack is configured
-    if (!isPaystackConfigured()) {
-      setMessage("Payment system is not configured. Please contact support.");
-      return;
-    }
-
-    setMessage("Processing payment...");
-
-    try {
-      // Generate payment reference
-      const paymentReference = createPaymentReference("WEB");
-      
-      // Initiate Paystack payment
-      await initiatePayment({
-        email: orderDraft.email,
-        amount: orderDraft.total,
-        reference: paymentReference,
-        metadata: {
-          order_id: orderDraft.id,
-          customer_name: orderDraft.customerName,
-          customer_phone: orderDraft.phone,
-          delivery_option: orderDraft.deliveryOption,
-          items_count: orderDraft.items.length,
-          source: "Shop Order"
-        },
-        onSuccess: async (paymentResponse) => {
-          // Payment successful, create order
-          try {
-            const data = await apiFetch("/orders", {
-              method: "POST",
-              body: {
-                source: "Shop Order",
-                customer: {
-                  name: orderDraft.customerName,
-                  phone: orderDraft.phone,
-                  email: orderDraft.email,
-                  address: customer.deliveryOption === "Pickup" ? "" : customer.address.trim()
-                },
-                delivery_option: orderDraft.deliveryOption,
-                delivery_note: orderDraft.deliveryNote,
-                payment_method: "Paystack",
-                payment_status: "Paid",
-                payment_reference: paymentReference,
-                payment_data: paymentResponse,
-                items: orderDraft.items.map(item => ({
-                  name: item.name,
-                  sku: item.sku,
-                  price: item.price,
-                  quantity: item.quantity
-                })),
-                subtotal: orderDraft.subtotal,
-                delivery_fee: orderDraft.deliveryFee,
-                total: orderDraft.total
-              }
-            });
-
-            const order = data.order;
-
-            setProducts((currentProducts) => currentProducts.map((product) => {
-              const cartItem = cartItems.find((item) => item.id === product.id && item.sku === product.sku);
-              if (!cartItem) return product;
-
-              return {
-                ...product,
-                stock: Math.max(0, Number(product.stock || 0) - cartItem.quantity)
-              };
-            }));
-
-            rememberCustomerLookup(orderDraft);
-            setHomeOrders((orders) => saveHomeOrders([order, ...orders]));
-            setCartItems([]);
-            // Clear cart via API (fire and forget - don't await)
-            apiFetch("/cart", { method: "DELETE" }).catch(() => {
-              // Silently fail - cart will be cleared locally anyway
-            });
-            setCustomer({
-              name: "",
-              phone: "",
-              email: "",
-              address: "",
-              deliveryNote: "",
-              deliveryOption: "Home Delivery",
-              paymentMethod: "Card Payment"
-            });
-            setCartOpen(false);
-            setMessage(customer.deliveryOption === "Pickup"
-              ? `Order ${order.id} placed and paid. Collect at the store.`
-              : `Order ${order.id} placed and paid. We will contact you for delivery.`);
-          } catch (error) {
-            setMessage(`Payment successful but order creation failed: ${error.message}`);
-          }
-        },
-        onClose: () => {
-          setMessage("Payment cancelled. Order not placed.");
-        }
-      });
-    } catch (error) {
-      setMessage(`Payment initialization failed: ${error.message}`);
-    }
+  function addToCart(product) {
+    updateCart(product.id, (cart[product.id] || 0) + 1);
   }
 
   return (
-    <>
-      <style jsx>{`
-        .shop-filters {
-          display: flex;
-          gap: 16px;
-          align-items: center;
-        }
-        .category-filter {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 14px;
-        }
-        .category-filter select {
-          padding: 6px 12px;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          background: white;
-          font-size: 14px;
-          min-width: 120px;
-        }
-        .category-filter span {
-          color: #6b7280;
-          font-weight: 500;
-        }
-        .product-attributes {
-          font-size: 12px;
-          color: #6b7280;
-          margin-top: 4px;
-        }
-        .product-category-badge {
-          display: inline-block;
-          padding: 2px 8px;
-          background: #e5e7eb;
-          border-radius: 12px;
-          font-size: 11px;
-          margin-left: 8px;
-        }
-      `}</style>
-      <section className="shop-hero">
+    <section className="section-card">
+      <div className="section-header product-table-header">
         <div>
-          <span className="shop-eyebrow"><Truck /> Home Delivery</span>
-          <h2>Shop products from home</h2>
-          <p>Browse available stock, add items to your cart, and send a delivery order to the store.</p>
-        </div>
-        <div className="shop-hero-summary">
-          <strong>{visibleProducts.length}</strong>
-          <span>available products</span>
-        </div>
-      </section>
-
-      <section className="section-card">
-        <div className="section-header product-table-header">
-          <div>
-            <h2><ShoppingBag /> Online Store</h2>
-            <p>{loadingProducts ? "Loading products..." : `${filteredProducts.length} product${filteredProducts.length === 1 ? "" : "s"} ready to order`}</p>
-          </div>
-          
-          <div className="shop-filters">
-            <label className="product-search">
-              <Search />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search products..."
-                aria-label="Search products"
-              />
-              {query && (
-                <button type="button" onClick={() => setQuery("")} aria-label="Clear search">
-                  <X />
-                </button>
-              )}
-            </label>
-            
-            <label className="category-filter">
-              <span>Category:</span>
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="shop-controls">
-            <Link className="shop-cart-icon-button" href="/shop/orders" aria-label="Open purchase history">
-              <History />
-            </Link>
-
-            <label className="field-group shop-category-filter">
-              <span>Category</span>
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                {categories.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="product-search">
-              <Search />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search products..."
-                aria-label="Search shop products"
-              />
-              {query && (
-                <button type="button" onClick={() => setQuery("")} aria-label="Clear shop search">
-                  <X />
-                </button>
-              )}
-            </label>
-
-            <button className="shop-cart-icon-button" type="button" onClick={() => setCartOpen(true)} aria-label="Open cart">
-              <ShoppingCart />
-              {totals.count > 0 && <span>{totals.count}</span>}
-            </button>
-          </div>
+          <h2><ShoppingCart /> Customer Shop</h2>
+          <p>{filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} available</p>
         </div>
 
-        {message && <div className="front-desk-message">{message}</div>}
+        <label className="product-search">
+          <Search />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search product, SKU, or category..."
+            aria-label="Search customer shop"
+          />
+        </label>
+      </div>
 
-        <div className="shop-product-grid">
+      <div className="cashier-panel">
+        <div className="cart-selection-summary">
+          <span>{totalItems} item{totalItems === 1 ? "" : "s"} in cart</span>
+          <strong>{formatNaira(totalPrice)}</strong>
+        </div>
+
+        <div className="form-grid customer-form-grid">
           {filteredProducts.map((product) => {
+            const quantity = Number(cart[product.id] || 0);
             const stock = Number(product.stock || 0);
-            const inCart = cartItems.find((item) => item.cartKey === makeCartKey(product));
 
             return (
-              <article className="shop-product-card" key={makeCartKey(product)}>
-                <div className="shop-product-visual">
-                  <PackageCheck />
-                  <span>{product.category || "Product"}</span>
+              <div key={product.id} className="field-group" style={{
+                border: "1px solid rgba(201,160,32,0.22)",
+                borderRadius: "18px",
+                padding: "16px",
+                background: "rgba(255,255,255,0.6)",
+                gap: "8px"
+              }}>
+                <div className="scan-pay-product-image">
+                  <ShoppingCart />
                 </div>
-                <div className="shop-product-body">
-                  <div>
-                    <h3>{product.name}</h3>
-                    <p>{product.description || product.sku}</p>
-                  </div>
-                  <div className="shop-product-meta">
-                    <span className="gold-text">{formatNaira(product.price || 0)}</span>
-                    <span className={`status-badge ${stock > 0 ? "status-active" : "status-pending"}`}>
-                      {stock > 0 ? `${stock} in stock` : "Out of stock"}
-                    </span>
-                  </div>
+                <strong>{product.name}</strong>
+                <span>{product.sku || "No SKU"}</span>
+                <span>{product.category || "General"}</span>
+                <span className="gold-text">{formatNaira(Number(product.price || 0))}</span>
+                <span>{stock} in stock</span>
+
+                <div className="front-desk-sale-controls" style={{ marginTop: "8px" }}>
                   <button
-                    className="btn-gold shop-add-button"
+                    className="icon-button sale-stepper"
+                    type="button"
+                    onClick={() => updateCart(product.id, (quantity || 0) - 1)}
+                    aria-label={`Reduce ${product.name} quantity`}
+                  >
+                    <Minus />
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    max={stock}
+                    value={quantity}
+                    onChange={(event) => updateCart(product.id, event.target.value)}
+                    aria-label={`${product.name} quantity`}
+                  />
+                  <button
+                    className="btn-gold front-desk-sell-button"
                     type="button"
                     onClick={() => addToCart(product)}
                     disabled={stock <= 0}
                   >
-                    <ShoppingCart /> {inCart ? "Add More" : "Add to Cart"}
+                    <Plus /> Add
                   </button>
                 </div>
-              </article>
+              </div>
             );
           })}
-          {!filteredProducts.length && <div className="empty-table-cell shop-empty">No products match your search.</div>}
         </div>
-      </section>
-
-      {cartOpen && (
-        <div className="shop-cart-overlay" role="dialog" aria-modal="true" aria-label="Shopping cart">
-          <button className="shop-cart-backdrop" type="button" aria-label="Close cart" onClick={() => setCartOpen(false)} />
-          <aside className="shop-cart-drawer">
-            <div className="shop-cart-drawer-header">
-              <div>
-                <h2><ShoppingCart /> Cart</h2>
-                <p>{totals.count} item{totals.count === 1 ? "" : "s"} selected</p>
-              </div>
-              <button className="sidebar-toggle-btn" type="button" onClick={() => setCartOpen(false)} aria-label="Close cart">
-                <X />
-              </button>
-            </div>
-
-            <div className="shop-checkout-steps">
-              <span className={cartItems.length ? "active" : ""}>1. Pick items</span>
-              <span className={cartItems.length ? "active" : ""}>2. Add to cart</span>
-              <span className={customer.deliveryOption ? "active" : ""}>3. Choose delivery</span>
-              <span>4. Place order</span>
-            </div>
-
-            <div className="shop-cart-list">
-              {cartItems.map((item) => (
-                <div className="shop-cart-item" key={item.cartKey}>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span>{item.sku} | {formatNaira(item.price)}</span>
-                  </div>
-                  <div className="front-desk-sale-controls">
-                    <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.cartKey, item.quantity - 1)}><Minus /></button>
-                    <input type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => updateQuantity(item.cartKey, event.target.value)} />
-                    <button className="icon-button sale-stepper" type="button" onClick={() => updateQuantity(item.cartKey, item.quantity + 1)}><Plus /></button>
-                    <button className="icon-button" type="button" onClick={() => removeCartItem(item.cartKey)} aria-label={`Remove ${item.name}`}><Trash2 /></button>
-                  </div>
-                </div>
-              ))}
-              {!cartItems.length && <div className="empty-table-cell">Your cart is empty.</div>}
-            </div>
-
-            <form className="product-form shop-checkout-form" onSubmit={placeOrder}>
-              <div className="shop-delivery-options" role="group" aria-label="Delivery option">
-                <button
-                  className={customer.deliveryOption === "Pickup" ? "active" : ""}
-                  type="button"
-                  onClick={() => updateDeliveryOption("Pickup")}
-                >
-                  <Store /> Pay and Pick Up
-                </button>
-                <button
-                  className={customer.deliveryOption === "Home Delivery" ? "active" : ""}
-                  type="button"
-                  onClick={() => updateDeliveryOption("Home Delivery")}
-                >
-                  <Truck /> Home Delivery
-                </button>
-              </div>
-
-              <label className="field-group">
-                <span>Name</span>
-                <input value={customer.name} onChange={(event) => updateCustomerField("name", event.target.value)} placeholder="Customer name" required />
-              </label>
-              <label className="field-group">
-                <span>Phone</span>
-                <input value={customer.phone} onChange={(event) => updateCustomerField("phone", event.target.value)} placeholder="+234..." required />
-              </label>
-              <label className="field-group">
-                <span>Email</span>
-                <input type="email" value={customer.email} onChange={(event) => updateCustomerField("email", event.target.value)} placeholder="customer@email.com" required />
-              </label>
-              {customer.deliveryOption === "Home Delivery" && (
-                <label className="field-group">
-                  <span>Address</span>
-                  <textarea rows="4" value={customer.address} onChange={(event) => updateCustomerField("address", event.target.value)} placeholder="Delivery address" required />
-                </label>
-              )}
-              <label className="field-group">
-                <span>Payment</span>
-                <select value={customer.paymentMethod} onChange={(event) => updateCustomerField("paymentMethod", event.target.value)}>
-                  <option>Card Payment</option>
-                  <option>Bank Transfer</option>
-                  <option>Online Payment</option>
-                  {customer.deliveryOption === "Home Delivery" && (
-                    <>
-                      <option>Pay on Delivery</option>
-                      <option>POS on Delivery</option>
-                    </>
-                  )}
-                </select>
-              </label>
-              <label className="field-group">
-                <span>{customer.deliveryOption === "Pickup" ? "Pickup Note" : "Delivery Note"}</span>
-                <textarea rows="3" value={customer.deliveryNote} onChange={(event) => updateCustomerField("deliveryNote", event.target.value)} placeholder={customer.deliveryOption === "Pickup" ? "Preferred pickup time after payment..." : "Gate code, landmark, preferred delivery time..."} />
-              </label>
-
-              <div className="shop-total-panel">
-                <div><span>Subtotal</span><strong>{formatNaira(totals.subtotal)}</strong></div>
-                <div><span>{customer.deliveryOption === "Pickup" ? "Pickup" : "Delivery"}</span><strong>{formatNaira(totals.deliveryFee)}</strong></div>
-                <div><span>Total</span><strong>{formatNaira(totals.total)}</strong></div>
-              </div>
-
-              <button className="btn-gold shop-place-order" type="submit" disabled={!cartItems.length}>
-                {customer.deliveryOption === "Pickup" ? <Store /> : <Truck />} Place Order
-              </button>
-            </form>
-          </aside>
-        </div>
-      )}
-    </>
+      </div>
+    </section>
   );
 }

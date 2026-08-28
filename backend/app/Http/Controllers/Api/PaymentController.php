@@ -17,10 +17,6 @@ class PaymentController extends Controller
     public function __construct()
     {
         $this->paystackSecretKey = env('PAYSTACK_SECRET_KEY');
-        
-        if (!$this->paystackSecretKey) {
-            throw new \Exception('Paystack secret key not configured');
-        }
     }
 
     /**

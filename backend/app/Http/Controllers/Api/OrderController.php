@@ -24,7 +24,7 @@ class OrderController extends Controller
         }
 
         return response()->json([
-            'orders' => RetailOrder::orderByDesc('created_at')
+            'orders' => $this->scopeToOutlet(RetailOrder::query(), $request)->orderByDesc('created_at')
                 ->get()
                 ->map(function (RetailOrder $order) {
                     return $this->orderPayload($order);
@@ -61,13 +61,16 @@ class OrderController extends Controller
             $this->verifyPayment($data['payment_reference']);
         }
 
-        $order = DB::transaction(function () use ($data) {
+        $order = DB::transaction(function () use ($data, $request) {
             foreach ($data['items'] as $item) {
                 if (empty($item['sku'])) {
                     continue;
                 }
 
-                $product = Product::where('sku', $item['sku'])->lockForUpdate()->first();
+                $product = $this->scopeToOutlet(Product::query(), $request)
+                    ->where('sku', $item['sku'])
+                    ->lockForUpdate()
+                    ->first();
                 if (!$product) {
                     continue;
                 }
@@ -105,6 +108,7 @@ class OrderController extends Controller
                 'delivery_fee' => $data['delivery_fee'] ?? 0,
                 'total' => $data['total'],
                 'status' => 'Pending',
+                'outlet_id' => $this->requestedOutletId($request),
             ]);
 
             $customer->forceFill([

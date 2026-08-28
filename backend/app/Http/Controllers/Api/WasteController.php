@@ -24,7 +24,7 @@ class WasteController extends Controller
         }
 
         return response()->json([
-            'records' => $query->get()->map(function (WasteRecord $record) {
+            'records' => $this->scopeToOutlet(WasteRecord::query(), $request)->orderByDesc('created_at')->get()->map(function (WasteRecord $record) {
                 return $this->wastePayload($record);
             }),
         ]);

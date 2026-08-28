@@ -20,7 +20,7 @@ class StaffController extends Controller
         }
 
         return response()->json([
-            'staff' => User::where('role', '!=', 'Customer')
+            'staff' => $this->scopeToOutlet(User::query(), $request)->where('role', '!=', 'Customer')
                 ->orderBy('name')
                 ->get()
                 ->map(function (User $user) {

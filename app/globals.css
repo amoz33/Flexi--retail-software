@@ -279,6 +279,38 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
   gap: 6px;
 }
 
+.nav-footer .active-outlet-sidebar {
+  justify-content: flex-start;
+  padding: 9px 10px;
+  border: 1px solid rgba(201,160,32,0.28);
+  border-radius: 8px;
+  background: rgba(201,160,32,0.09);
+  text-align: left;
+}
+
+.active-outlet-sidebar > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.active-outlet-sidebar strong,
+.active-outlet-sidebar small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-outlet-sidebar strong {
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.active-outlet-sidebar small {
+  color: rgba(255,255,255,0.62);
+  font-size: 0.62rem;
+}
+
 .nav-footer svg {
   width: 14px;
   height: 14px;
@@ -1199,6 +1231,22 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
 
 .inventory-form-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.asset-barcode-scan-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.asset-barcode-field {
+  width: 100%;
+}
+
+.asset-scan-toggle {
+  min-height: 48px;
+  white-space: nowrap;
 }
 
 .customer-form-grid {
@@ -3034,54 +3082,6 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
   max-width: 240px;
   white-space: normal;
   line-height: 1.35;
-}
-
-.product-edit-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1300;
-  padding: 1.5rem;
-  animation: fadeInUp 0.25s ease-out;
-}
-
-.product-edit-modal {
-  width: 100%;
-  max-width: 560px;
-  max-height: 90vh;
-  overflow-y: auto;
-  margin-bottom: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(201,160,32,0.65) rgba(0,0,0,0.06);
-}
-
-.product-edit-modal:hover {
-  transform: none;
-}
-
-.product-edit-form {
-  display: grid;
-  gap: 18px;
-  padding: 24px 28px 28px;
-}
-
-.product-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-
-@media (max-width: 880px) {
-  .product-edit-overlay { padding: 0.9rem; }
-  .product-edit-form { padding: 20px 18px 22px; }
-  .product-edit-actions .btn-gold,
-  .product-edit-actions .btn-outline { flex: 1; }
 }
 
 .empty-table-cell {
