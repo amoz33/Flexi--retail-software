@@ -17,17 +17,24 @@ INSERT INTO products (id, name, sku, cost_price, price, stock, sold_count, month
 (5, 'AirPods Pro', 'APL-AIRPOD', 146000, 195000, 15, 42, '[3,3,4,3,4,3,4,4,3,4,3,4]', 'Electronics', 8190000, NULL);
 
 -- ---------------------------------------------------------------------
--- staff
+-- staff (seeded into both `staff` for historic data and `users` so
+-- application migrations/users-based logic recognizes staff)
 -- ---------------------------------------------------------------------
 INSERT INTO staff (id, name, role, sales, orders, icon) VALUES
 (1, 'Amara Okafor', 'Manager', 2840000, 124, 'Crown'),
 (2, 'Chidi Eze', 'Cashier', 1820000, 98, 'Star'),
 (3, 'Folake Adeyemi', 'Senior Cashier', 3120000, 156, 'Flame');
 
+-- Insert corresponding rows into `users` (app expects staff as users)
+INSERT INTO users (name, email, role, is_active, password) VALUES
+('Amara Okafor', 'amara.okafor@flexiretail.local', 'Manager', 1, '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
+('Chidi Eze', 'chidi.eze@flexiretail.local', 'Cashier', 1, '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
+('Folake Adeyemi', 'folake.adeyemi@flexiretail.local', 'Senior Cashier', 1, '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi');
+
 -- ---------------------------------------------------------------------
--- equipment_inventory
+-- equipment_items (matches migration name)
 -- ---------------------------------------------------------------------
-INSERT INTO equipment_inventory (id, name, category, location, quantity, status, note) VALUES
+INSERT INTO equipment_items (id, name, category, location, quantity, status, note) VALUES
 (1, 'Main Floor AC', 'Air Conditioner', 'Sales Floor', 2, 'Working', 'Serviced in June 2026.'),
 (2, 'Ceiling Fan Set', 'Fan', 'Stock Room', 4, 'Working', 'Keep on low during receiving.'),
 (3, 'Barcode Scanner', 'POS Equipment', 'Front Desk', 3, 'Faulty', 'One scanner disconnects during checkout.'),

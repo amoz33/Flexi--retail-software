@@ -146,7 +146,7 @@ export default function WasteManagementManager() {
           </div>
         </div>
         <DataTable
-          columns={["Item", "Type", "Reason", "Qty", "Action", "Recorded", "Note"]}
+          columns={["Item", "Type", "Reason", "Qty", "Action", "Recorded By", "Recorded", "Note"]}
           rows={wasteRecords}
           rowKey={(record) => record.id}
           emptyMessage={loading ? "Loading waste register..." : "No waste has been recorded."}
@@ -158,6 +158,7 @@ export default function WasteManagementManager() {
               <td><span className="status-badge status-pending">{record.reason}</span></td>
               <td>{record.quantity}</td>
               <td>{record.action}</td>
+              <td>{record.recordedBy || "System"}</td>
               <td>{record.recordedAt}</td>
               <td className="description-cell">{record.note || "-"}</td>
             </>

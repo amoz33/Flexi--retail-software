@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, ClipboardList, Eye, ReceiptText, Users } from "lucide-react";
+import { BarChart3, ClipboardList, Eye, ReceiptText, Recycle, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import StatCard from "../components/StatCard";
@@ -36,11 +36,15 @@ export default function StaffRecordsPage() {
   const [session, setSession] = useState(null);
   const [staff, setStaff] = useState([]);
   const [sales, setSales] = useState([]);
+  const [waste, setWaste] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [message, setMessage] = useState("");
 
   const selectedStaff = staff.find((person) => person.id === selectedId) || staff[0] || null;
   const selectedSales = selectedStaff ? salesForStaff(sales, selectedStaff) : [];
+  const selectedWaste = selectedStaff
+    ? waste.filter((record) => Number(record.userId || 0) === Number(selectedStaff.id))
+    : [];
   const selectedStats = statsForSales(selectedSales);
   const overallStats = statsForSales(sales);
 
@@ -65,9 +69,19 @@ export default function StaffRecordsPage() {
       }
     }
 
+    async function loadWaste() {
+      try {
+        const data = await apiFetch("/waste");
+        if (!cancelled) setWaste(data.records || []);
+      } catch {
+        if (!cancelled) setWaste([]);
+      }
+    }
+
     loadSales();
+    loadWaste();
     return () => { cancelled = true; };
-  }, []);
+  }, [session?.token]);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -179,6 +193,31 @@ export default function StaffRecordsPage() {
                 <td>{sale.paymentMethod || "-"}</td>
                 <td className="gold-text">{formatNaira(Number(sale.total || 0))}</td>
                 <td>{sale.createdAt || "-"}</td>
+              </>
+            )}
+          />
+
+          <div className="section-header product-table-header" style={{ marginTop: "1.5rem" }}>
+            <div>
+              <h2><Recycle /> {selectedStaff?.name || "Staff"} Waste Log</h2>
+              <p>{selectedWaste.length} waste record{selectedWaste.length === 1 ? "" : "s"}</p>
+            </div>
+          </div>
+
+          <DataTable
+            columns={["Item", "Reason", "Qty", "Action", "Note", "Date"]}
+            rows={selectedWaste}
+            rowKey={(record, index) => `${record.id}-${index}`}
+            emptyMessage="No waste has been recorded for this staff member yet."
+            tableClassName="product-data-table front-desk-history-table"
+            renderRow={(record) => (
+              <>
+                <td><strong>{record.itemName}</strong></td>
+                <td>{record.reason || "-"}</td>
+                <td>{record.quantity || 0}</td>
+                <td>{record.action || "-"}</td>
+                <td className="description-cell">{record.note || "-"}</td>
+                <td>{record.recordedAt || "-"}</td>
               </>
             )}
           />

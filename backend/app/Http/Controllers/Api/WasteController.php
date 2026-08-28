@@ -12,12 +12,19 @@ class WasteController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+        $query = WasteRecord::query()->orderByDesc('created_at');
+
         if (!$this->isAdmin($request)) {
-            return response()->json(['message' => 'Only admins can view the waste register.'], 403);
+            if (!$user) {
+                return response()->json(['message' => 'Authentication required.'], 401);
+            }
+
+            $query->where('user_id', $user->id);
         }
 
         return response()->json([
-            'records' => WasteRecord::orderByDesc('created_at')->get()->map(function (WasteRecord $record) {
+            'records' => $query->get()->map(function (WasteRecord $record) {
                 return $this->wastePayload($record);
             }),
         ]);
@@ -25,8 +32,8 @@ class WasteController extends Controller
 
     public function store(Request $request)
     {
-        if (!$this->isAdmin($request)) {
-            return response()->json(['message' => 'Only admins can record waste.'], 403);
+        if (!$request->user()) {
+            return response()->json(['message' => 'Authentication required to record waste.'], 401);
         }
 
         $data = $request->validate([
@@ -89,6 +96,8 @@ class WasteController extends Controller
 
     private function wastePayload(WasteRecord $record)
     {
+        $user = $record->user()->first();
+
         return [
             'id' => $record->id,
             'itemName' => $record->item_name,
@@ -97,6 +106,8 @@ class WasteController extends Controller
             'quantity' => (int) $record->quantity,
             'action' => $record->action,
             'note' => $record->note ?: '',
+            'recordedBy' => $user ? $user->name : 'System',
+            'userId' => $record->user_id,
             'recordedAt' => optional($record->created_at)->format('M j, Y g:i A'),
         ];
     }
