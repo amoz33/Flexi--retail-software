@@ -95,7 +95,7 @@ class ProductController extends Controller
 
     private function isAdmin(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $this->isPrivileged($request);
     }
 
     private function validateProduct(Request $request, $ignoreId = null, $partial = false)
@@ -107,7 +107,7 @@ class ProductController extends Controller
             'sku' => [$required, 'string', 'max:255'],
             'barcode' => ['nullable', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:255'],
-            'expiryDate' => [$required, 'date'],
+            'expiryDate' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
             'images' => ['nullable', 'array'],
             'attributes' => ['nullable', 'array'],

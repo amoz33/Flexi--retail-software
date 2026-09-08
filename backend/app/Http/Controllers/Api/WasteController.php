@@ -91,7 +91,7 @@ class WasteController extends Controller
 
     private function isAdmin(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $this->isPrivileged($request);
     }
 
     private function wastePayload(WasteRecord $record)

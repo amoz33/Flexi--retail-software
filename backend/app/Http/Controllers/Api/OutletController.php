@@ -24,9 +24,9 @@ class OutletController extends Controller
 
     public function store(Request $request)
     {
-        // Check if user is admin
-        if (!$this->isAdmin($request)) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        // Only the Developer account can create new outlets
+        if (!$this->isDeveloper($request)) {
+            return response()->json(['message' => 'Only the developer account can add new outlets.'], 403);
         }
 
         $data = $request->validate([
@@ -173,7 +173,15 @@ class OutletController extends Controller
 
     private function isAdmin(Request $request)
     {
-        $user = $request->user();
-        return $user && $user->email === 'admin@flexiretail.ng';
+        return $this->isPrivileged($request);
+    }
+
+    /**
+     * Only the Developer account may create new outlets.
+     * Admin can view/manage existing outlets but not add new ones.
+     */
+    private function isDeveloper(Request $request)
+    {
+        return $request->user() && $request->user()->role === 'Developer';
     }
 }

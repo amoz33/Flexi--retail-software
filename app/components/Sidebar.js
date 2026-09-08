@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BadgeDollarSign, BarChart3, Boxes, ChevronLeft, ChevronRight, ClipboardList, Crown, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
+import { BadgeDollarSign, BarChart3, Boxes, ChevronLeft, ChevronRight, ClipboardList, Crown, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, group: "Overview" },
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/products", label: "Inventory", icon: Boxes, group: "Operations" },
   { href: "/inventory", label: "Asset Management", icon: ClipboardList, group: "Operations" },
   { href: "/waste-management", label: "Waste Management", icon: Recycle, group: "Operations" },
+  { href: "/expenses", label: "Expenses", icon: Receipt, group: "Operations" },
   { href: "/front-desk", label: "Front Desk", icon: Store, group: "Sales" },
   { href: "/front-desk/sell", label: "Cashier Sale", icon: ScanLine, group: "Sales" },
   { href: "/front-desk/receipt", label: "Receipt Print", icon: Printer, group: "Sales" },
@@ -44,19 +45,21 @@ function pageIsAllowed(href, allowedPages = []) {
   return allowedPages.includes(href);
 }
 
+const fullAccessRoles = ["Admin", "Developer"];
+
 function getNavItemsForRole(role, allowedPages = []) {
   if (role === "Cashier") {
     return allowedPages.length ? cashierNavItems.filter((item) => pageIsAllowed(item.href, allowedPages)) : cashierNavItems;
   }
   if (role === "Customer") return customerNavItems;
-  if (role !== "Admin" && allowedPages.length) {
+  if (!fullAccessRoles.includes(role) && allowedPages.length) {
     return navItems.filter((item) => pageIsAllowed(item.href, allowedPages));
   }
   return navItems;
 }
 
 function getHomeForRole(role, allowedPages = []) {
-  if (role !== "Admin" && allowedPages.length) return allowedPages[0];
+  if (!fullAccessRoles.includes(role) && allowedPages.length) return allowedPages[0];
   if (role === "Cashier") return "/cashier";
   if (role === "Customer") return "/shop";
   return "/dashboard";

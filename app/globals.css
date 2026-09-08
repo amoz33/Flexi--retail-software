@@ -3419,6 +3419,12 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
 }
 
 @media print {
+  /* Change 80mm below to 58mm if your printer uses the narrower paper size */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
   body {
     background: #fff;
   }
@@ -3428,7 +3434,8 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
   .main-footer-copyright,
   .receipt-no-print,
   .hamburger-btn,
-  .page-navigation {
+  .page-navigation,
+  .receipt-history-card {
     display: none !important;
   }
 
@@ -3442,11 +3449,97 @@ svg { width: 1em; height: 1em; flex: 0 0 auto; }
   }
 
   .receipt-paper {
-    max-width: none;
-    margin: 0;
+    width: 72mm;
+    max-width: 72mm;
+    margin: 0 auto;
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    padding: 0;
+    padding: 4mm 3mm;
+    font-size: 11px;
+    color: #000;
   }
+
+  .receipt-header h2 {
+    font-size: 13px;
+  }
+
+  .receipt-header p,
+  .receipt-header span,
+  .receipt-meta span,
+  .receipt-footer {
+    font-size: 9.5px;
+  }
+
+  .receipt-meta {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin: 10px 0;
+  }
+
+  .receipt-table th,
+  .receipt-table td {
+    padding: 3px 2px;
+    font-size: 10px;
+  }
+
+  .receipt-totals {
+    font-size: 10.5px;
+  }
+}
+
+/* Product Edit Modal — overlay, panel, and form layout */
+.product-edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(5px);
+}
+
+.product-edit-modal {
+  width: min(100%, 560px);
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.product-edit-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+  padding: 24px 28px 28px;
+}
+
+.product-edit-form .field-group:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.product-edit-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(201,160,32,0.2);
+}
+
+@media (max-width: 640px) {
+  .product-edit-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

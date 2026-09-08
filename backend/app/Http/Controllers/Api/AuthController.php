@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -24,16 +23,6 @@ class AuthController extends Controller
         ]);
 
         $email = Str::lower($credentials['email']);
-        $throttleKey = $email.'|'.$request->ip();
-
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            $seconds = RateLimiter::availableIn($throttleKey);
-
-            return response()->json([
-                'message' => 'Too many login attempts. Please try again shortly.',
-                'retry_after' => $seconds,
-            ], 429);
-        }
 
         try {
             $user = User::where('email', $email)->first();
@@ -46,14 +35,10 @@ class AuthController extends Controller
         }
 
         if (!$user || !$user->is_active || !Hash::check($credentials['password'], $user->password)) {
-            RateLimiter::hit($throttleKey, 60);
-
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
-
-        RateLimiter::clear($throttleKey);
 
         $plainToken = bin2hex(random_bytes(32));
         $expiresAt = Carbon::now()->addMinutes($request->boolean('remember') ? 43200 : 480);

@@ -25,7 +25,7 @@ class CustomerController extends Controller
 
     private function isAdmin(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $this->isPrivileged($request);
     }
 
     private function customerPayload(Customer $customer)

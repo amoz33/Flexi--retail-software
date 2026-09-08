@@ -80,6 +80,26 @@ export default function OrdersManager() {
     }
   }
 
+  async function updateOrderPaymentStatus(order, paymentStatus) {
+    if (!order.databaseId) {
+      setMessage("This order has no database record and cannot be updated.");
+      return;
+    }
+
+    try {
+      const data = await apiFetch(`/orders/${order.databaseId}/payment-status`, {
+        method: "PATCH",
+        body: { payment_status: paymentStatus }
+      });
+      setTableOrders((currentOrders) => currentOrders.map((item) => (
+        item.databaseId === data.order.databaseId ? data.order : item
+      )));
+      setMessage(`${data.order.id} payment marked as ${data.order.paymentStatus}.`);
+    } catch (error) {
+      setMessage(error.message || "Payment status could not be updated.");
+    }
+  }
+
   return (
     <>
       <OrderCreationDropdown onCreateOrder={addOrder} />
@@ -114,7 +134,7 @@ export default function OrdersManager() {
 
         {message && <div className="front-desk-message">{message}</div>}
 
-        <RecentOrdersTable orders={filteredOrders} onUpdateStatus={updateOrderStatus} />
+        <RecentOrdersTable orders={filteredOrders} onUpdateStatus={updateOrderStatus} onUpdatePaymentStatus={updateOrderPaymentStatus} />
       </section>
     </>
   );

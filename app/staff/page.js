@@ -9,6 +9,7 @@ const sessionStorageKey = "retail-auth-session";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 
 const roles = ["Admin", "Manager", "Cashier", "Inventory", "Staff"];
+const fullAccessRoles = ["Admin", "Developer"];
 const pageOptions = [
   { href: "/cashier", label: "Cashier Dashboard" },
   { href: "/dashboard", label: "Dashboard" },
@@ -218,7 +219,7 @@ export default function StaffPage() {
   }
 
   async function resetStaffPassword(person) {
-    if (person.role === "Admin") return;
+    if (fullAccessRoles.includes(person.role)) return;
 
     setSaving(true);
     setMessage("");
@@ -258,10 +259,10 @@ export default function StaffPage() {
     setMessage("Generated password copied.");
   }
 
-  if (session && session.role !== "Admin") {
+  if (session && !fullAccessRoles.includes(session.role)) {
     return (
       <section className="section-card">
-        <div className="empty-table-cell">Only admins can manage staff accounts.</div>
+        <div className="empty-table-cell">Only admins or the developer account can manage staff accounts.</div>
       </section>
     );
   }
@@ -275,7 +276,7 @@ export default function StaffPage() {
         </div>
         <div className="staff-top-actions">
           <Link className="btn-outline" href="/staff-records"><BarChart3 /> Staff Records</Link>
-          <div className="role-badge">Admin Only</div>
+          <div className="role-badge">Admin & Developer</div>
         </div>
       </div>
 
@@ -365,13 +366,13 @@ export default function StaffPage() {
                   </div>
                 </td>
                 <td><span className={`status-pill ${person.is_active ? "status-active" : "status-inactive"}`}>{person.is_active ? "Active" : "Inactive"}</span></td>
-                <td>{person.role === "Admin" ? "All pages" : `${person.allowed_pages?.length || 0} page${person.allowed_pages?.length === 1 ? "" : "s"}`}</td>
+                <td>{fullAccessRoles.includes(person.role) ? "All pages" : `${person.allowed_pages?.length || 0} page${person.allowed_pages?.length === 1 ? "" : "s"}`}</td>
                 <td>
                   <div className="staff-row-actions">
                     <button className="btn-outline staff-table-action" type="button" onClick={() => setSelectedId(person.id)}>
                       <Eye /> View
                     </button>
-                    {person.role !== "Admin" && (
+                    {!fullAccessRoles.includes(person.role) && (
                       <>
                         <button className="btn-outline staff-table-action" type="button" onClick={() => resetStaffPassword(person)} disabled={saving}>
                           <KeyRound /> Reset Password
@@ -397,7 +398,7 @@ export default function StaffPage() {
               <p>Edit login details, status, role, and page access for this staff member.</p>
             </div>
             <div className="staff-actions-row">
-              {selectedStaff.role !== "Admin" && (
+              {!fullAccessRoles.includes(selectedStaff.role) && (
                 <>
                   <button className="btn-outline" type="button" onClick={() => resetStaffPassword(selectedStaff)} disabled={saving}>
                     <KeyRound /> Reset Password
@@ -443,8 +444,8 @@ export default function StaffPage() {
               <label key={page.href}>
                 <input
                   type="checkbox"
-                  checked={selectedStaff.role === "Admin" || (selectedStaff.allowed_pages || []).includes(page.href)}
-                  disabled={selectedStaff.role === "Admin"}
+                  checked={fullAccessRoles.includes(selectedStaff.role) || (selectedStaff.allowed_pages || []).includes(page.href)}
+                  disabled={fullAccessRoles.includes(selectedStaff.role)}
                   onChange={(event) => updateAllowedPage(page.href, event.target.checked, "selected")}
                 />
                 <span>{page.label}</span>

@@ -15,7 +15,7 @@ use Illuminate\Validation\Rule;
 
 class OrderController extends Controller
 {
-    private $adminStatuses = ['Pending', 'Packed', 'Shipped'];
+    private $adminStatuses = ['Pending', 'Packed', 'Shipped', 'Delivered'];
 
     public function index(Request $request)
     {
@@ -168,10 +168,33 @@ class OrderController extends Controller
         ]);
 
         if (!$this->isAllowedAdminTransition($order->status, $data['status'])) {
-            return response()->json(['message' => 'Order status must move Pending to Packed to Shipped.'], 422);
+            return response()->json(['message' => 'Order status must move Pending to Packed to Shipped to Delivered, one step at a time.'], 422);
         }
 
         $order->forceFill(['status' => $data['status']])->save();
+
+        return response()->json(['order' => $this->orderPayload($order->fresh())]);
+    }
+
+    public function updatePaymentStatus(Request $request, RetailOrder $order)
+    {
+        if (!$this->isAdmin($request)) {
+            return response()->json(['message' => 'Only admins can update payment status.'], 403);
+        }
+
+        $data = $request->validate([
+            'payment_status' => ['required', Rule::in(['Pending', 'Paid', 'Failed'])],
+        ]);
+
+        // Online payments (Paystack) are verified automatically and should not
+        // be manually overridden here — this action is for Cash/POS on Delivery.
+        if ($order->payment_reference && $order->payment_status === 'Paid') {
+            return response()->json([
+                'message' => 'This order was paid online and verified automatically. Payment status cannot be changed manually.',
+            ], 422);
+        }
+
+        $order->forceFill(['payment_status' => $data['payment_status']])->save();
 
         return response()->json(['order' => $this->orderPayload($order->fresh())]);
     }
@@ -237,12 +260,13 @@ class OrderController extends Controller
         if ($current === $next) return true;
         if ($current === 'Pending' && $next === 'Packed') return true;
         if ($current === 'Packed' && $next === 'Shipped') return true;
+        if ($current === 'Shipped' && $next === 'Delivered') return true;
         return false;
     }
 
     private function isAdmin(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $this->isPrivileged($request);
     }
 
     private function orderPayload(RetailOrder $order)

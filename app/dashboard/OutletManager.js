@@ -5,9 +5,26 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 
+const sessionStorageKey = "retail-auth-session";
+
+function getCurrentRole() {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey);
+    return saved ? JSON.parse(saved).role : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function OutletManager() {
   const [outlets, setOutlets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState(null);
+
+  useEffect(() => {
+    setRole(getCurrentRole());
+  }, []);
   const [message, setMessage] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingOutlet, setEditingOutlet] = useState(null);
@@ -280,9 +297,11 @@ export default function OutletManager() {
             <h2><Store /> Outlet Management</h2>
             <p>Manage multiple retail outlets across different locations</p>
           </div>
-          <button className="btn-gold" type="button" onClick={() => setShowCreateForm(true)}>
-            <Plus /> Add New Outlet
-          </button>
+          {role === "Developer" && (
+            <button className="btn-gold" type="button" onClick={() => setShowCreateForm(true)}>
+              <Plus /> Add New Outlet
+            </button>
+          )}
         </div>
 
         {message && <div className="front-desk-message">{message}</div>}

@@ -9,6 +9,7 @@ import { apiFetch } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
+const fullAccessRoles = ["Admin", "Developer"];
 
 function getStoredSession() {
   try {
@@ -112,10 +113,10 @@ export default function StaffRecordsPage() {
     loadStaff();
   }, [session]);
 
-  if (session && session.role !== "Admin") {
+  if (session && !fullAccessRoles.includes(session.role)) {
     return (
       <section className="section-card">
-        <div className="empty-table-cell">Only admins can view staff records.</div>
+        <div className="empty-table-cell">Only admins or the developer account can view staff records.</div>
       </section>
     );
   }
@@ -127,7 +128,7 @@ export default function StaffRecordsPage() {
           <h1><BarChart3 /> Staff Records</h1>
           <p>Review cashier and staff sales performance from completed receipts.</p>
         </div>
-        <div className="role-badge">Admin Only</div>
+        <div className="role-badge">Admin & Developer</div>
       </div>
 
       {message && <div className="front-desk-message staff-message">{message}</div>}

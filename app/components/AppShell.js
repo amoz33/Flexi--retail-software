@@ -36,8 +36,10 @@ function pageIsAllowed(pathname, href) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+const fullAccessRoles = ["Admin", "Developer"];
+
 function getHomeForRole(role, allowedPages = []) {
-  if (role !== "Admin" && allowedPages.length) return allowedPages[0];
+  if (!fullAccessRoles.includes(role) && allowedPages.length) return allowedPages[0];
   if (role === "Cashier") return "/cashier";
   if (role === "Customer") return "/shop";
   return "/dashboard";
@@ -139,9 +141,19 @@ export default function AppShell({ children }) {
           cache: "no-store"
         });
 
-        if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
           clearSession();
           router.replace("/login");
+          return;
+        }
+
+        if (!response.ok) {
+          // Transient failure (rate limit, server hiccup, network issue) —
+          // keep the existing session instead of logging the user out.
+          // The next successful navigation will re-verify normally.
+          if (cancelled) return;
+          setSession(parsedSession);
+          setSessionReady(true);
           return;
         }
 
@@ -159,7 +171,7 @@ export default function AppShell({ children }) {
 
         setSession(verifiedSession);
 
-        if (verifiedSession.role !== "Admin") {
+        if (!fullAccessRoles.includes(verifiedSession.role)) {
           const allowedRoutes = verifiedSession.allowedPages.length
             ? verifiedSession.allowedPages
             : getDefaultAllowedRoutes(verifiedSession.role);
@@ -170,13 +182,27 @@ export default function AppShell({ children }) {
           }
         }
 
-        if (verifiedSession.role !== "Admin" && pathname === "/staff") {
+        if (!fullAccessRoles.includes(verifiedSession.role) && pathname === "/staff") {
           router.replace(getHomeForRole(verifiedSession.role, verifiedSession.allowedPages));
           return;
         }
 
         setSessionReady(true);
       } catch {
+        // Network-level failure reaching /auth/me — don't destroy a
+        // potentially-valid session over a connectivity blip. Keep the
+        // user logged in locally; the next successful check will confirm.
+        if (cancelled) return;
+        const savedSession = localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey);
+        if (savedSession) {
+          try {
+            setSession(JSON.parse(savedSession));
+            setSessionReady(true);
+            return;
+          } catch {
+            // Saved session is corrupt JSON — this is a real reason to log out.
+          }
+        }
         clearSession();
         router.replace("/login");
       }

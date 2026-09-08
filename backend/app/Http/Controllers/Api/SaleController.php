@@ -14,7 +14,7 @@ class SaleController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $isAdmin = $user && $user->role === 'Admin';
+        $isAdmin = $user && in_array($user->role, ['Admin', 'Developer'], true);
 
         $query = $this->scopeToOutlet(Sale::query(), $request)->orderByDesc('created_at');
 
@@ -34,7 +34,7 @@ class SaleController extends Controller
     public function show(Request $request, Sale $sale)
     {
         $user = $request->user();
-        $isAdmin = $user && $user->role === 'Admin';
+        $isAdmin = $user && in_array($user->role, ['Admin', 'Developer'], true);
 
         if (!$isAdmin && (!$user || $sale->user_id !== $user->id)) {
             return response()->json(['message' => 'You can only view your own sales.'], 403);

@@ -2,13 +2,46 @@
 
 import Link from "next/link";
 import { Minus, Plus, ScanLine, Search, ShoppingCart } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatNaira } from "../../data";
+import { apiFetch } from "../../lib/api";
 
 export default function CustomerScanPay({ initialProducts = [] }) {
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState({});
-  const products = initialProducts || [];
+  const [products, setProducts] = useState(initialProducts || []);
+  const [loading, setLoading] = useState(!initialProducts.length);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (initialProducts.length) return;
+    let cancelled = false;
+
+    async function loadInitialData() {
+      try {
+        const [productsData, cartData] = await Promise.all([
+          apiFetch("/products/customer"),
+          apiFetch("/cart")
+        ]);
+        if (cancelled) return;
+
+        const visible = (productsData.products || []).filter((product) => product.frontDeskVisible !== false);
+        setProducts(visible);
+
+        const cartMap = {};
+        (cartData.cart?.items || []).forEach((item) => { cartMap[item.product_id] = item.quantity; });
+        setCart(cartMap);
+      } catch (error) {
+        if (!cancelled) setMessage(error.message || "Could not load products.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadInitialData();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filteredProducts = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -27,12 +60,25 @@ export default function CustomerScanPay({ initialProducts = [] }) {
     return sum + quantity * Number(product.price || 0);
   }, 0);
 
+  async function syncCart(nextCart) {
+    const items = Object.entries(nextCart)
+      .filter(([, quantity]) => quantity > 0)
+      .map(([productId, quantity]) => ({ product_id: Number(productId), quantity }));
+
+    try {
+      await apiFetch("/cart", { method: "PUT", body: { items } });
+    } catch (error) {
+      setMessage(error.message || "Could not update cart. Your selection may not be saved.");
+    }
+  }
+
   function updateCart(productId, nextQuantity) {
     const quantity = Math.max(0, Number(nextQuantity) || 0);
     setCart((currentCart) => {
       const nextCart = { ...currentCart };
       if (!quantity) delete nextCart[productId];
       else nextCart[productId] = quantity;
+      syncCart(nextCart);
       return nextCart;
     });
   }
@@ -61,11 +107,15 @@ export default function CustomerScanPay({ initialProducts = [] }) {
         </label>
       </div>
 
+      {message && <div className="front-desk-message">{message}</div>}
+
       <div className="cashier-panel">
         <div className="cart-selection-summary">
           <span>{totalItems} item{totalItems === 1 ? "" : "s"} selected</span>
           <strong>{formatNaira(totalPrice)}</strong>
         </div>
+
+        {loading && <div className="empty-table-cell">Loading products...</div>}
 
         <div className="form-grid customer-form-grid">
           {filteredProducts.map((product) => {

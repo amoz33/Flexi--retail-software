@@ -137,6 +137,34 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
     setImportMessage("");
   }
 
+  function handleDownloadTemplate() {
+    const templateRows = [
+      {
+        "Name": "Sample Product",
+        "SKU": "SAMPLE-001",
+        "Barcode": "SAMPLE-001",
+        "Expiry Date": "",
+        "Description": "Optional product description",
+        "Price": 5000,
+        "Cost Price": 3500,
+        "Stock": 20,
+        "Images": "",
+        "Attributes": "Color:Red;Size:Large",
+        "Variants": "Small|SAMPLE-001-S|SAMPLE-001-S|4500|10;Large|SAMPLE-001-L|SAMPLE-001-L|5000|10"
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(templateRows);
+    worksheet["!cols"] = [
+      { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 30 },
+      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 20 }, { wch: 24 }, { wch: 40 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Products");
+    XLSX.writeFile(workbook, "flexi-retail-product-import-template.xlsx");
+  }
+
   function handleWorkbookUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -166,12 +194,17 @@ export default function ProductCreateForm({ onCreateProduct, onImportProducts })
       <div className="excel-import-panel">
         <div>
           <h3><FileSpreadsheet /> Import Excel Sheet</h3>
-          <p>Columns should include Name, SKU, Expiry Date, Cost Price, Selling Price (or Price), and Stock. Barcode, description, images, attributes, and variants are optional.</p>
+          <p>Columns should include Name, SKU, Expiry Date, Cost Price, Selling Price (or Price), and Stock. Barcode, description, images, attributes, and variants are optional. Not sure of the exact format? Download the template first.</p>
         </div>
-        <label className="btn-outline excel-upload-button">
-          <Upload /> Upload Sheet
-          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleWorkbookUpload} />
-        </label>
+        <div className="excel-import-buttons" style={{ display: "flex", gap: "10px" }}>
+          <button className="btn-outline" type="button" onClick={handleDownloadTemplate}>
+            <FileSpreadsheet /> Download Template
+          </button>
+          <label className="btn-outline excel-upload-button">
+            <Upload /> Upload Sheet
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={handleWorkbookUpload} />
+          </label>
+        </div>
       </div>
 
       {importMessage && <div className="form-message">{importMessage}</div>}

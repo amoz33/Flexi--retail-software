@@ -23,6 +23,23 @@ class VendorTransactionController extends Controller
         ]);
     }
 
+    public function uploadReceipt(Request $request)
+    {
+        if (!$this->isAdmin($request)) {
+            return response()->json(['message' => 'Only admins can upload receipts.'], 403);
+        }
+
+        $request->validate([
+            'receipt' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+        ]);
+
+        $path = $request->file('receipt')->store('vendor-receipts', 'public');
+
+        return response()->json([
+            'url' => \Illuminate\Support\Facades\Storage::disk('public')->url($path),
+        ]);
+    }
+
     public function store(Request $request)
     {
         if (!$this->isAdmin($request)) {
@@ -97,7 +114,7 @@ class VendorTransactionController extends Controller
 
     private function isAdmin(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $this->isPrivileged($request);
     }
 
     private function transactionPayload(VendorTransaction $transaction)

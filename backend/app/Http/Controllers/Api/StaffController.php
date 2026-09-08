@@ -15,7 +15,7 @@ class StaffController extends Controller
 
     public function index(Request $request)
     {
-        if (!$this->isAdmin($request)) {
+        if (!$this->canManageStaff($request)) {
             return response()->json(['message' => 'Only admins can manage staff.'], 403);
         }
 
@@ -32,8 +32,19 @@ class StaffController extends Controller
 
     public function store(Request $request)
     {
-        if (!$this->isAdmin($request)) {
+        if (!$this->canManageStaff($request)) {
             return response()->json(['message' => 'Only admins can create staff.'], 403);
+        }
+
+        $isDeveloper = $request->user()->role === 'Developer';
+
+        if (!$isDeveloper) {
+            $currentUserCount = User::where('role', '!=', 'Customer')->count();
+            if ($currentUserCount >= 5) {
+                return response()->json([
+                    'message' => 'You have reached the 5-user limit for this account. Contact the developer account to register more users.',
+                ], 422);
+            }
         }
 
         $data = $request->validate([
@@ -68,7 +79,7 @@ class StaffController extends Controller
 
     public function update(Request $request, User $staff)
     {
-        if (!$this->isAdmin($request)) {
+        if (!$this->canManageStaff($request)) {
             return response()->json(['message' => 'Only admins can update staff.'], 403);
         }
 
@@ -98,7 +109,7 @@ class StaffController extends Controller
 
     public function toggleStatus(Request $request, User $staff)
     {
-        if (!$this->isAdmin($request)) {
+        if (!$this->canManageStaff($request)) {
             return response()->json(['message' => 'Only admins can update staff.'], 403);
         }
 
@@ -119,12 +130,12 @@ class StaffController extends Controller
 
     public function resetPassword(Request $request, User $staff)
     {
-        if (!$this->isAdmin($request)) {
+        if (!$this->canManageStaff($request)) {
             return response()->json(['message' => 'Only admins can reset staff passwords.'], 403);
         }
 
-        if ($staff->role === 'Admin') {
-            return response()->json(['message' => 'Admin passwords cannot be reset from the staff table.'], 422);
+        if (in_array($staff->role, ['Admin', 'Developer'], true)) {
+            return response()->json(['message' => 'Admin and Developer passwords cannot be reset from the staff table.'], 422);
         }
 
         $password = $this->generatePassword();
@@ -136,9 +147,9 @@ class StaffController extends Controller
         ]);
     }
 
-    private function isAdmin(Request $request)
+    private function canManageStaff(Request $request)
     {
-        return $request->user() && $request->user()->role === 'Admin';
+        return $request->user() && in_array($request->user()->role, ['Admin', 'Developer'], true);
     }
 
     private function generatePassword()

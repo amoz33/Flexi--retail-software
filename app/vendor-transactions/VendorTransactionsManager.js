@@ -54,6 +54,7 @@ export default function VendorTransactionsManager() {
   const [formTransaction, setFormTransaction] = useState(emptyTransaction);
   const [query, setQuery] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -112,9 +113,28 @@ export default function VendorTransactionsManager() {
     }));
   }
 
-  function handleReceiptUpload(event) {
+  async function handleReceiptUpload(event) {
     const file = event.target.files?.[0];
-    updateTransactionField("receiptSnapshot", file ? file.name : "");
+    if (!file) {
+      updateTransactionField("receiptSnapshot", "");
+      return;
+    }
+
+    setUploadingReceipt(true);
+    try {
+      const formData = new FormData();
+      formData.append("receipt", file);
+      const data = await apiFetch("/vendor-transactions/upload-receipt", {
+        method: "POST",
+        body: formData
+      });
+      updateTransactionField("receiptSnapshot", data.url);
+    } catch (error) {
+      setMessage(error.message || "Could not upload receipt.");
+      updateTransactionField("receiptSnapshot", "");
+    } finally {
+      setUploadingReceipt(false);
+    }
   }
 
   async function addTransaction(event) {
@@ -287,8 +307,14 @@ export default function VendorTransactionsManager() {
             <label className="receipt-upload">
               <FileImage />
               <span>Receipt Snapshot</span>
-              <strong>{formTransaction.receiptSnapshot || "Upload receipt image"}</strong>
-              <input type="file" accept="image/*" onChange={handleReceiptUpload} />
+              <strong>
+                {uploadingReceipt
+                  ? "Uploading..."
+                  : formTransaction.receiptSnapshot
+                    ? "Receipt attached"
+                    : "Upload receipt image"}
+              </strong>
+              <input type="file" accept="image/*,application/pdf" onChange={handleReceiptUpload} disabled={uploadingReceipt} />
             </label>
 
             <label className="field-group field-span-2">
@@ -395,7 +421,18 @@ export default function VendorTransactionsManager() {
                 <td className="gold-text">{formatNaira(transaction.paymentAmount)}</td>
                 <td><span className={`status-badge ${getPaymentStatusClass(transaction.paymentStatus)}`}>{transaction.paymentStatus}</span></td>
                 <td>{transaction.paymentMethod}</td>
-                <td>{transaction.receiptSnapshot ? <span className="customer-name"><Upload /> {transaction.receiptSnapshot}</span> : "-"}</td>
+                <td>
+                  {transaction.receiptSnapshot ? (
+                    <a
+                      className="customer-name receipt-view-link"
+                      href={transaction.receiptSnapshot}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Upload /> View Receipt
+                    </a>
+                  ) : "-"}
+                </td>
                 <td>{transaction.vendorSignature ? <span className="customer-name"><PenLine /> {transaction.vendorSignature}</span> : "-"}</td>
                 <td><span className="date-cell"><CalendarDays /> {transaction.date}</span></td>
                 <td>

@@ -3,31 +3,46 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronDown, MessageSquareText, PackageCheck, Truck } from "lucide-react";
 import DataTable from "../../components/DataTable";
-import { formatNaira } from "../../data";
-import { apiFetch } from "../../lib/api";
+import { formatNaira, getStatusClass } from "../../data";
+import { apiFetch, getSession } from "../../lib/api";
 
-const homeOrdersStorageKey = "retail-home-orders";
 const customerLookupStorageKey = "retail-customer-order-lookup";
 
 export default function CustomerOrderHistory() {
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [lookup, setLookup] = useState({ email: "", phone: "" });
+  const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    const session = getSession();
     const savedLookup = localStorage.getItem(customerLookupStorageKey);
+    let initialLookup = { email: "", phone: "" };
 
     if (savedLookup) {
       try {
-        const parsedLookup = JSON.parse(savedLookup);
-        setLookup(parsedLookup);
-        loadOrders(parsedLookup);
+        initialLookup = JSON.parse(savedLookup);
       } catch {
         localStorage.removeItem(customerLookupStorageKey);
       }
     }
+
+    // A logged-in customer's own account email always takes priority over
+    // whatever was previously saved, so their history loads automatically.
+    if (session?.email) {
+      initialLookup = { ...initialLookup, email: session.email };
+    }
+
+    setLookup(initialLookup);
+
+    if (initialLookup.email || initialLookup.phone) {
+      loadOrders(initialLookup);
+    } else {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trackingSteps = [
@@ -57,8 +72,12 @@ export default function CustomerOrderHistory() {
   }
 
   async function loadOrders(nextLookup = lookup) {
-    if (!nextLookup.email && !nextLookup.phone) return;
+    if (!nextLookup.email && !nextLookup.phone) {
+      setLoading(false);
+      return;
+    }
 
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       if (nextLookup.email) params.set("email", nextLookup.email);
@@ -68,6 +87,8 @@ export default function CustomerOrderHistory() {
       setOrders(data.orders || []);
     } catch (error) {
       setMessage(error.message || "Cannot reach the order API.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -103,20 +124,23 @@ export default function CustomerOrderHistory() {
           </div>
         </div>
 
-        <form className="customer-order-lookup" onSubmit={saveLookup}>
-          {message && <div className="front-desk-message">{message}</div>}
-          <label className="field-group">
-            <span>Email</span>
-            <input type="email" value={lookup.email} onChange={(event) => setLookup((current) => ({ ...current, email: event.target.value }))} placeholder="customer@email.com" />
-          </label>
-          <label className="field-group">
-            <span>Phone</span>
-            <input value={lookup.phone} onChange={(event) => setLookup((current) => ({ ...current, phone: event.target.value }))} placeholder="+234..." />
-          </label>
-          <button className="btn-gold" type="submit">Refresh Orders</button>
-        </form>
+        <div className="cashier-panel">
+          <form className="customer-order-lookup" onSubmit={saveLookup}>
+            {message && <div className="front-desk-message">{message}</div>}
+            <label className="field-group">
+              <span>Email</span>
+              <input type="email" value={lookup.email} onChange={(event) => setLookup((current) => ({ ...current, email: event.target.value }))} placeholder="customer@email.com" />
+            </label>
+            <label className="field-group">
+              <span>Phone</span>
+              <input value={lookup.phone} onChange={(event) => setLookup((current) => ({ ...current, phone: event.target.value }))} placeholder="+234..." />
+            </label>
+            <button className="btn-gold" type="submit">Refresh Orders</button>
+          </form>
 
-        <DataTable
+          {loading && <div className="empty-table-cell">Loading your orders...</div>}
+
+          <DataTable
           columns={["Order", "Customer", "Items", "Option", "Payment", "Payment Status", "Total", "Status", "Details"]}
           rows={orders}
           rowKey={(order) => order.id}
@@ -131,7 +155,7 @@ export default function CustomerOrderHistory() {
               <td>{order.paymentMethod}</td>
               <td><span className={`status-badge ${order.paymentStatus === "Paid" ? "status-active" : "status-pending"}`}>{order.paymentStatus || "Pending"}</span></td>
               <td className="gold-text">{formatNaira(order.total || 0)}</td>
-              <td><span className="status-badge status-pending">{order.status}</span></td>
+              <td><span className={`status-badge ${getStatusClass(order.status)}`}>{order.status}</span></td>
               <td>
                 <button
                   className={`btn-outline product-row-button shop-order-view-button ${selectedOrder?.id === order.id ? "active" : ""}`}
@@ -146,6 +170,7 @@ export default function CustomerOrderHistory() {
             </>
           )}
         />
+        </div>
       {selectedOrder && (
         <div className="shop-order-detail shop-order-dropdown" id="shop-order-details">
           <div className="section-header product-table-header">

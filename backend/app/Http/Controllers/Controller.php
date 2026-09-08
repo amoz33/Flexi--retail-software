@@ -15,7 +15,7 @@ class Controller extends BaseController
     protected function requestedOutletId(Request $request)
     {
         $user = $request->user();
-        return $user && $user->role === 'Admin' && $request->filled('outlet_id')
+        return $user && $this->isPrivileged($request) && $request->filled('outlet_id')
             ? (int) $request->input('outlet_id')
             : ($user ? $user->outlet_id : null);
     }
@@ -24,5 +24,14 @@ class Controller extends BaseController
     {
         $outletId = $this->requestedOutletId($request);
         return $outletId ? $query->where('outlet_id', $outletId) : $query;
+    }
+
+    /**
+     * Admin and Developer both have full access. Developer additionally
+     * bypasses the 5-user staff registration cap (enforced in StaffController).
+     */
+    protected function isPrivileged(Request $request)
+    {
+        return $request->user() && in_array($request->user()->role, ['Admin', 'Developer'], true);
     }
 }

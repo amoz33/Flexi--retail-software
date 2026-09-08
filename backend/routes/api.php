@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\EquipmentController;
+use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OutletController;
 use App\Http\Controllers\Api\ProductController;
@@ -20,7 +21,7 @@ use App\Http\Controllers\Api\WasteController;
 */
 
 Route::prefix('auth')->group(function () {
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('/login', [AuthController::class, 'login']);
 
     Route::middleware('auth.bearer')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
@@ -66,6 +67,7 @@ Route::middleware('auth.bearer')->group(function () {
     Route::get('/customers', [CustomerController::class, 'index']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+    Route::patch('/orders/{order}/payment-status', [OrderController::class, 'updatePaymentStatus']);
 });
 
 Route::middleware('auth.bearer')->prefix('sales')->group(function () {
@@ -84,6 +86,14 @@ Route::middleware('auth.bearer')->prefix('vendor-transactions')->group(function 
     Route::get('/', [VendorTransactionController::class, 'index']);
     Route::post('/', [VendorTransactionController::class, 'store']);
     Route::patch('/{transaction}/status', [VendorTransactionController::class, 'updateStatus']);
+    Route::post('/upload-receipt', [VendorTransactionController::class, 'uploadReceipt']);
+});
+
+Route::middleware('auth.bearer')->prefix('expenses')->group(function () {
+    Route::get('/', [ExpenseController::class, 'index']);
+    Route::post('/', [ExpenseController::class, 'store']);
+    Route::delete('/{expense}', [ExpenseController::class, 'destroy']);
+    Route::post('/upload-receipt', [ExpenseController::class, 'uploadReceipt']);
 });
 
 Route::middleware('auth.bearer')->prefix('equipment')->group(function () {
@@ -107,9 +117,23 @@ Route::prefix('cart')->group(function () {
     Route::post('/sync', [\App\Http\Controllers\Api\CartController::class, 'sync']);
 });
 
-// Payment API
+// Payment API (Paystack)
 Route::prefix('payments')->group(function () {
     Route::post('/initialize', [\App\Http\Controllers\Api\PaymentController::class, 'initialize']);
     Route::get('/verify/{reference}', [\App\Http\Controllers\Api\PaymentController::class, 'verify']);
     Route::post('/webhook', [\App\Http\Controllers\Api\PaymentController::class, 'webhook']);
+});
+
+// Additional mobile money gateways — DPO Pay, PawaPay, MoMo (MTN MoMo PSB Nigeria)
+// Separate controller, does not touch the Paystack integration above.
+Route::prefix('payments')->group(function () {
+    Route::post('/dpo/initialize', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'initializeDpo']);
+    Route::get('/dpo/verify/{transToken}', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'verifyDpo']);
+
+    Route::post('/pawapay/initialize', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'initializePawapay']);
+    Route::get('/pawapay/verify/{depositId}', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'verifyPawapay']);
+
+    Route::post('/momo/initialize', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'initializeMomo']);
+    Route::get('/momo/verify/{referenceId}', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'verifyMomo']);
+    Route::post('/momo/webhook', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'momoWebhook']);
 });
