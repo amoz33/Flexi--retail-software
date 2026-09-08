@@ -242,12 +242,6 @@ export default function ScanPayCart() {
       setSubmitting(false);
     }
   }
-      window.location.href = data.authorization_url;
-    } catch (error) {
-      setMessage(error.message || "Could not start online payment.");
-      setSubmitting(false);
-    }
-  }
 
   function handlePay(event) {
     if (["Paystack", "DPO", "PawaPay", "MoMo"].includes(paymentMethod)) return handlePayOnline(event);
