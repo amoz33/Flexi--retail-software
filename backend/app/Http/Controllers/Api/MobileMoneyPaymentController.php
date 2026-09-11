@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PaymentSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -51,12 +52,13 @@ class MobileMoneyPaymentController extends Controller
             'callback_url' => 'required|url',
         ]);
 
-        $companyToken = env('DPO_COMPANY_TOKEN');
-        $serviceType = env('DPO_SERVICE_TYPE');
+        $settings = PaymentSetting::current();
+        $companyToken = $settings->dpo_company_token;
+        $serviceType = $settings->dpo_service_type;
 
         if (!$companyToken || !$serviceType) {
             return response()->json([
-                'error' => 'DPO Pay is not configured. Set DPO_COMPANY_TOKEN and DPO_SERVICE_TYPE in your .env file.',
+                'error' => 'DPO Pay is not configured for this account. Add your DPO credentials in Payment Settings.',
             ], 500);
         }
 
@@ -132,7 +134,8 @@ class MobileMoneyPaymentController extends Controller
 
     public function verifyDpo(Request $request, $transToken)
     {
-        $companyToken = env('DPO_COMPANY_TOKEN');
+        $settings = PaymentSetting::current();
+        $companyToken = $settings->dpo_company_token;
 
         if (!$companyToken) {
             return response()->json(['error' => 'DPO Pay is not configured.'], 500);
@@ -194,7 +197,8 @@ class MobileMoneyPaymentController extends Controller
 
     private function pawapayBaseUrl()
     {
-        return env('PAWAPAY_ENV', 'sandbox') === 'production'
+        $settings = PaymentSetting::current();
+        return ($settings->pawapay_env ?: 'sandbox') === 'production'
             ? 'https://api.pawapay.io'
             : 'https://api.sandbox.pawapay.io';
     }
@@ -210,11 +214,12 @@ class MobileMoneyPaymentController extends Controller
             'country' => 'nullable|string|size:3',
         ]);
 
-        $apiToken = env('PAWAPAY_API_TOKEN');
+        $settings = PaymentSetting::current();
+        $apiToken = $settings->pawapay_api_token;
 
         if (!$apiToken) {
             return response()->json([
-                'error' => 'PawaPay is not configured. Set PAWAPAY_API_TOKEN in your .env file.',
+                'error' => 'PawaPay is not configured for this account. Add your PawaPay API token in Payment Settings.',
             ], 500);
         }
 
@@ -270,7 +275,8 @@ class MobileMoneyPaymentController extends Controller
 
     public function verifyPawapay(Request $request, $depositId)
     {
-        $apiToken = env('PAWAPAY_API_TOKEN');
+        $settings = PaymentSetting::current();
+        $apiToken = $settings->pawapay_api_token;
 
         if (!$apiToken) {
             return response()->json(['error' => 'PawaPay is not configured.'], 500);
@@ -337,16 +343,18 @@ class MobileMoneyPaymentController extends Controller
 
     private function momoBaseUrl()
     {
-        return env('MOMO_ENV', 'sandbox') === 'production'
+        $settings = PaymentSetting::current();
+        return ($settings->momo_env ?: 'sandbox') === 'production'
             ? 'https://momodeveloper.mtn.com'
             : 'https://sandbox.momodeveloper.mtn.com';
     }
 
     private function getMomoAccessToken()
     {
-        $apiUser = env('MOMO_API_USER');
-        $apiKey = env('MOMO_API_KEY');
-        $subscriptionKey = env('MOMO_SUBSCRIPTION_KEY');
+        $settings = PaymentSetting::current();
+        $apiUser = $settings->momo_api_user;
+        $apiKey = $settings->momo_api_key;
+        $subscriptionKey = $settings->momo_subscription_key;
 
         $response = Http::withHeaders([
             'Ocp-Apim-Subscription-Key' => $subscriptionKey,
@@ -369,14 +377,15 @@ class MobileMoneyPaymentController extends Controller
             'phone' => 'required|string|max:20',
         ]);
 
-        $subscriptionKey = env('MOMO_SUBSCRIPTION_KEY');
-        $apiUser = env('MOMO_API_USER');
-        $apiKey = env('MOMO_API_KEY');
-        $callbackHost = env('MOMO_CALLBACK_HOST');
+        $settings = PaymentSetting::current();
+        $subscriptionKey = $settings->momo_subscription_key;
+        $apiUser = $settings->momo_api_user;
+        $apiKey = $settings->momo_api_key;
+        $callbackHost = $settings->momo_callback_host;
 
         if (!$subscriptionKey || !$apiUser || !$apiKey) {
             return response()->json([
-                'error' => 'MoMo is not configured. Set MOMO_SUBSCRIPTION_KEY, MOMO_API_USER, and MOMO_API_KEY in your .env file.',
+                'error' => 'MoMo is not configured for this account. Add your MoMo credentials in Payment Settings.',
             ], 500);
         }
 
@@ -390,7 +399,7 @@ class MobileMoneyPaymentController extends Controller
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $accessToken,
                 'X-Reference-Id' => $referenceId,
-                'X-Target-Environment' => env('MOMO_ENV', 'sandbox'),
+                'X-Target-Environment' => ($settings->momo_env ?: 'sandbox'),
                 'Ocp-Apim-Subscription-Key' => $subscriptionKey,
                 'Content-Type' => 'application/json',
                 'X-Callback-Url' => $callbackHost ? "https://{$callbackHost}/api/payments/momo/webhook" : null,
@@ -439,7 +448,8 @@ class MobileMoneyPaymentController extends Controller
 
     public function verifyMomo(Request $request, $referenceId)
     {
-        $subscriptionKey = env('MOMO_SUBSCRIPTION_KEY');
+        $settings = PaymentSetting::current();
+        $subscriptionKey = $settings->momo_subscription_key;
 
         if (!$subscriptionKey) {
             return response()->json(['error' => 'MoMo is not configured.'], 500);
@@ -450,7 +460,7 @@ class MobileMoneyPaymentController extends Controller
 
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $accessToken,
-                'X-Target-Environment' => env('MOMO_ENV', 'sandbox'),
+                'X-Target-Environment' => ($settings->momo_env ?: 'sandbox'),
                 'Ocp-Apim-Subscription-Key' => $subscriptionKey,
             ])->get($this->momoBaseUrl() . "/collection/v1_0/requesttopay/{$referenceId}");
 

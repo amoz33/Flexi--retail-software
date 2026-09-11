@@ -13,12 +13,25 @@ use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\VendorTransactionController;
 use App\Http\Controllers\Api\WasteController;
+use Stancl\Tenancy\Middleware\InitializeTenancyByDomainOrSubdomain;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
+|
+| Universal Routes: wrapped in ['universal', InitializeTenancyByDomainOrSubdomain::class].
+| On a central domain (localhost, retail.flexisoftware.ng, flexisoftware.ng),
+| tenancy is never initialized — every route below runs exactly as it always
+| has, against your existing central database. On any other domain (a real
+| tenant, e.g. clienta.flexisoftware.ng), tenancy initializes automatically
+| and the database connection switches to that tenant's own database before
+| the route body runs. Same URL paths work in both cases — no separate
+| /tenant-api prefix needed, unlike the earlier Option B attempt.
+|
 */
+
+Route::middleware(['universal', InitializeTenancyByDomainOrSubdomain::class])->group(function () {
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -104,6 +117,16 @@ Route::middleware('auth.bearer')->prefix('equipment')->group(function () {
     Route::delete('/{equipment}', [EquipmentController::class, 'destroy']);
 });
 
+Route::middleware('auth.bearer')->prefix('payment-settings')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\PaymentSettingController::class, 'show']);
+    Route::put('/', [\App\Http\Controllers\Api\PaymentSettingController::class, 'update']);
+});
+
+Route::middleware('auth.bearer')->prefix('reports')->group(function () {
+    Route::get('/sales', [\App\Http\Controllers\Api\ReportController::class, 'sales']);
+    Route::post('/sales/email', [\App\Http\Controllers\Api\ReportController::class, 'emailSales']);
+});
+
 Route::middleware('auth.bearer')->prefix('waste')->group(function () {
     Route::get('/', [WasteController::class, 'index']);
     Route::post('/', [WasteController::class, 'store']);
@@ -136,4 +159,6 @@ Route::prefix('payments')->group(function () {
     Route::post('/momo/initialize', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'initializeMomo']);
     Route::get('/momo/verify/{referenceId}', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'verifyMomo']);
     Route::post('/momo/webhook', [\App\Http\Controllers\Api\MobileMoneyPaymentController::class, 'momoWebhook']);
+});
+
 });

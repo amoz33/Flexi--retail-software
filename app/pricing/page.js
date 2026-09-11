@@ -1,7 +1,7 @@
 "use client";
 
-import { BadgeDollarSign } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BadgeDollarSign, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { formatNaira } from "../data";
 import { apiFetch } from "../lib/api";
@@ -13,6 +13,8 @@ function getMargin(costPrice, sellingPrice) {
 
 export default function PricingPage() {
   const [products, setProducts] = useState([]);
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -34,6 +36,22 @@ export default function PricingPage() {
     return () => { cancelled = true; };
   }, []);
 
+  const categories = useMemo(() => {
+    const unique = new Set(products.map((product) => product.category).filter(Boolean));
+    return ["All", ...Array.from(unique)];
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return products.filter((product) => {
+      const matchesQuery = !normalizedQuery
+        || product.name?.toLowerCase().includes(normalizedQuery)
+        || product.sku?.toLowerCase().includes(normalizedQuery);
+      const matchesCategory = categoryFilter === "All" || product.category === categoryFilter;
+      return matchesQuery && matchesCategory;
+    });
+  }, [products, query, categoryFilter]);
+
   return (
     <>
       <div className="top-bar">
@@ -44,15 +62,35 @@ export default function PricingPage() {
       </div>
 
       <section className="section-card">
-        <div className="section-header">
-          <h2>Item Pricing</h2>
+        <div className="section-header product-table-header">
+          <div>
+            <h2>Item Pricing</h2>
+            <p>{filteredProducts.length} item{filteredProducts.length === 1 ? "" : "s"}</p>
+          </div>
+
+          <label className="product-search">
+            <Search />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search product or SKU..."
+              aria-label="Search price book"
+            />
+          </label>
+
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            {categories.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
         </div>
 
         {message && <div className="front-desk-message">{message}</div>}
 
         <DataTable
           columns={["Product", "SKU", "Category", "Cost Price", "Selling Price", "Profit", "Margin"]}
-          rows={products}
+          rows={filteredProducts}
           rowKey={(product) => product.id}
           emptyMessage={loading ? "Loading pricing..." : "No pricing items to show."}
           renderRow={(product) => {

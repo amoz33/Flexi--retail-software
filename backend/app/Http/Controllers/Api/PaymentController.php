@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PaymentSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +17,27 @@ class PaymentController extends Controller
 
     public function __construct()
     {
-        $this->paystackSecretKey = env('PAYSTACK_SECRET_KEY');
+        // Read lazily, not in the constructor — the constructor can run
+        // before tenancy is fully initialized on some request paths, and
+        // we don't want a DB lookup to fail before we even know if this
+        // request needs one.
+    }
+
+    protected function paystackSecretKey()
+    {
+        if ($this->paystackSecretKey) {
+            return $this->paystackSecretKey;
+        }
+
+        $settings = PaymentSetting::current();
+
+        if (!$settings->paystack_secret_key) {
+            abort(response()->json([
+                'error' => 'Paystack is not configured for this account. Add your Paystack secret key in Payment Settings.',
+            ], 500));
+        }
+
+        return $this->paystackSecretKey = $settings->paystack_secret_key;
     }
 
     /**
@@ -34,7 +55,7 @@ class PaymentController extends Controller
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->paystackSecretKey,
+                'Authorization' => 'Bearer ' . $this->paystackSecretKey(),
                 'Content-Type' => 'application/json',
             ])->post('https://api.paystack.co/transaction/initialize', [
                 'email' => $validated['email'],
@@ -88,7 +109,7 @@ class PaymentController extends Controller
             }
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->paystackSecretKey,
+                'Authorization' => 'Bearer ' . $this->paystackSecretKey(),
             ])->get('https://api.paystack.co/transaction/verify/' . $reference);
 
             $data = $response->json();
@@ -203,7 +224,7 @@ class PaymentController extends Controller
         
         // Validate Paystack signature
         $signature = $request->header('x-paystack-signature');
-        $expectedSignature = hash_hmac('sha512', $request->getContent(), $this->paystackSecretKey);
+        $expectedSignature = hash_hmac('sha512', $request->getContent(), $this->paystackSecretKey());
 
         if ($signature !== $expectedSignature) {
             Log::error('Invalid Paystack webhook signature');

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BadgeDollarSign, BarChart3, Boxes, ChevronLeft, ChevronRight, ClipboardList, Crown, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
+import { BadgeDollarSign, BarChart3, Boxes, ChevronLeft, ChevronRight, ClipboardList, CreditCard, Crown, FileBarChart, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, group: "Overview" },
@@ -22,8 +22,10 @@ const navItems = [
   { href: "/vendors", label: "Vendor Desk", icon: Handshake, group: "People" },
   { href: "/vendor-transactions", label: "Vendor Transactions", icon: HandCoins, group: "People" },
   { href: "/pricing", label: "Price Book", icon: BadgeDollarSign, group: "Control" },
+  { href: "/reports", label: "Reports", icon: FileBarChart, group: "Control" },
   { href: "/staff", label: "Staff", icon: Users, group: "Control" },
   { href: "/staff-records", label: "Staff Records", icon: ClipboardList, group: "Control" },
+  { href: "/payment-settings", label: "Payment Settings", icon: CreditCard, group: "Control" },
   { href: "/orders", label: "Order Flow", icon: Truck, group: "Control" }
 ];
 

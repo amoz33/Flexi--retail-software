@@ -22,9 +22,13 @@ const pageOptions = [
   { href: "/front-desk/receipt", label: "Receipt Print" },
   { href: "/front-desk/sales-history", label: "Sales History" },
   { href: "/customers", label: "Customers" },
+  { href: "/orders", label: "Orders" },
+  { href: "/expenses", label: "Expenses" },
   { href: "/vendors", label: "Vendor Desk" },
   { href: "/vendor-transactions", label: "Vendor Transactions" },
   { href: "/pricing", label: "Price Book" },
+  { href: "/reports", label: "Reports" },
+  { href: "/payment-settings", label: "Payment Settings" },
   { href: "/staff", label: "Staff" },
   { href: "/staff-records", label: "Staff Records" }
 ];
