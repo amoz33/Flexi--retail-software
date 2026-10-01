@@ -20,7 +20,6 @@ return [
         '127.0.0.1',
         'localhost',
         'flexisoftware.ng',
-        'retail.flexisoftware.ng',
     ],
 
     /**
