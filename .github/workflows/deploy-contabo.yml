@@ -1,0 +1,97 @@
+name: Deploy to Contabo (Retail)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: https://retail.flexisoftware.ng/api
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/.next
+          include-hidden-files: true
+
+  deploy:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/.next
+
+      - name: Rsync frontend build to server
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz --delete
+          path: frontend/.next/
+          remote_path: /home/retail/app/frontend/.next/
+          remote_host: ${{ secrets.CONTABO_SSH_HOST }}
+          remote_user: ${{ secrets.CONTABO_SSH_USER }}
+          remote_key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
+          remote_port: ${{ secrets.CONTABO_SSH_PORT }}
+
+      - name: Rsync backend code to server
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz --delete --exclude=.env --exclude=vendor --exclude=storage
+          path: backend/
+          remote_path: /home/retail/app/backend/
+          remote_host: ${{ secrets.CONTABO_SSH_HOST }}
+          remote_user: ${{ secrets.CONTABO_SSH_USER }}
+          remote_key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
+          remote_port: ${{ secrets.CONTABO_SSH_PORT }}
+
+      - name: Rsync frontend source to server
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz --delete --exclude=node_modules --exclude=.next --exclude=.env.local
+          path: frontend/
+          remote_path: /home/retail/app/frontend/
+          remote_host: ${{ secrets.CONTABO_SSH_HOST }}
+          remote_user: ${{ secrets.CONTABO_SSH_USER }}
+          remote_key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
+          remote_port: ${{ secrets.CONTABO_SSH_PORT }}
+
+      - name: Run remote deploy steps
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CONTABO_SSH_HOST }}
+          username: ${{ secrets.CONTABO_SSH_USER }}
+          key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.CONTABO_SSH_PORT }}
+          script: |
+            cd /home/retail/app/backend
+            /usr/bin/php8.3 /usr/local/bin/composer install --no-dev --optimize-autoloader
+            /usr/bin/php8.3 artisan migrate --force
+            /usr/bin/php8.3 artisan tenants:migrate
+            /usr/bin/php8.3 artisan config:cache
+            /usr/bin/php8.3 artisan route:cache
+            sudo systemctl reload php8.3-fpm
+
+            cd /home/retail/app/frontend
+            npm ci --omit=dev
+            pm2 restart retail-frontend
