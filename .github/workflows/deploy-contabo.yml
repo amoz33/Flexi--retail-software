@@ -15,11 +15,9 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: frontend
         run: npm ci
 
       - name: Build
-        working-directory: frontend
         env:
           NEXT_PUBLIC_API_BASE_URL: https://retail.flexisoftware.ng/api
         run: npm run build
@@ -28,7 +26,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-build
-          path: frontend/.next
+          path: .next
           include-hidden-files: true
 
   deploy:
@@ -41,14 +39,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-build
-          path: frontend/.next
+          path: .next
 
       - name: Rsync frontend build to server
         uses: burnett01/rsync-deployments@7.0.1
         with:
           switches: -avz --delete
-          path: frontend/.next/
-          remote_path: /home/retail/app/frontend/.next/
+          path: .next/
+          remote_path: /home/retail/app/.next/
           remote_host: ${{ secrets.CONTABO_SSH_HOST }}
           remote_user: ${{ secrets.CONTABO_SSH_USER }}
           remote_key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
@@ -68,9 +66,9 @@ jobs:
       - name: Rsync frontend source to server
         uses: burnett01/rsync-deployments@7.0.1
         with:
-          switches: -avz --delete --exclude=node_modules --exclude=.next --exclude=.env.local
-          path: frontend/
-          remote_path: /home/retail/app/frontend/
+          switches: -avz --delete --exclude=node_modules --exclude=.next --exclude=.env.local --exclude=backend --exclude=.git --exclude=.github
+          path: ./
+          remote_path: /home/retail/app/
           remote_host: ${{ secrets.CONTABO_SSH_HOST }}
           remote_user: ${{ secrets.CONTABO_SSH_USER }}
           remote_key: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
@@ -92,6 +90,6 @@ jobs:
             /usr/bin/php8.3 artisan route:cache
             sudo systemctl reload php8.3-fpm
 
-            cd /home/retail/app/frontend
+            cd /home/retail/app
             npm ci --omit=dev
             pm2 restart retail-frontend
