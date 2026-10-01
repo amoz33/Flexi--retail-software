@@ -187,7 +187,7 @@ export default function AppShell({ children }) {
           return;
         }
 
-        if (verifiedSession.role === "Admin" && pathname === "/payment-settings") {
+        if (verifiedSession.role === "Admin" && (pathname === "/payment-settings" || pathname === "/tenants")) {
           router.replace(getHomeForRole(verifiedSession.role, verifiedSession.allowedPages));
           return;
         }

@@ -122,6 +122,11 @@ Route::middleware(['auth.bearer', 'role:Developer'])->prefix('payment-settings')
     Route::put('/', [\App\Http\Controllers\Api\PaymentSettingController::class, 'update']);
 });
 
+Route::middleware(['auth.bearer', 'role:Developer'])->prefix('tenants')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\TenantController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\TenantController::class, 'store']);
+});
+
 Route::middleware('auth.bearer')->prefix('reports')->group(function () {
     Route::get('/sales', [\App\Http\Controllers\Api\ReportController::class, 'sales']);
     Route::post('/sales/email', [\App\Http\Controllers\Api\ReportController::class, 'emailSales']);

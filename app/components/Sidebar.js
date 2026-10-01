@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BadgeDollarSign, BarChart3, Boxes, ChevronLeft, ChevronRight, ClipboardList, CreditCard, Crown, FileBarChart, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
+import { BadgeDollarSign, BarChart3, Building2, Boxes, ChevronLeft, ChevronRight, ClipboardList, CreditCard, Crown, FileBarChart, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, group: "Overview" },
@@ -26,6 +26,7 @@ const navItems = [
   { href: "/staff", label: "Staff", icon: Users, group: "Control" },
   { href: "/staff-records", label: "Staff Records", icon: ClipboardList, group: "Control" },
   { href: "/payment-settings", label: "Payment Settings", icon: CreditCard, group: "Control" },
+  { href: "/tenants", label: "Tenants", icon: Building2, group: "Control" },
   { href: "/orders", label: "Order Flow", icon: Truck, group: "Control" }
 ];
 
@@ -58,7 +59,7 @@ function getNavItemsForRole(role, allowedPages = []) {
     return navItems.filter((item) => pageIsAllowed(item.href, allowedPages));
   }
   if (role === "Admin") {
-    return navItems.filter((item) => item.href !== "/payment-settings");
+    return navItems.filter((item) => item.href !== "/payment-settings" && item.href !== "/tenants");
   }
   return navItems;
 }
