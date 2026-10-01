@@ -187,6 +187,11 @@ export default function AppShell({ children }) {
           return;
         }
 
+        if (verifiedSession.role === "Admin" && pathname === "/payment-settings") {
+          router.replace(getHomeForRole(verifiedSession.role, verifiedSession.allowedPages));
+          return;
+        }
+
         setSessionReady(true);
       } catch {
         // Network-level failure reaching /auth/me — don't destroy a

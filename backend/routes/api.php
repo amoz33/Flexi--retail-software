@@ -117,7 +117,7 @@ Route::middleware('auth.bearer')->prefix('equipment')->group(function () {
     Route::delete('/{equipment}', [EquipmentController::class, 'destroy']);
 });
 
-Route::middleware('auth.bearer')->prefix('payment-settings')->group(function () {
+Route::middleware(['auth.bearer', 'role:Developer'])->prefix('payment-settings')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\PaymentSettingController::class, 'show']);
     Route::put('/', [\App\Http\Controllers\Api\PaymentSettingController::class, 'update']);
 });

@@ -57,6 +57,9 @@ function getNavItemsForRole(role, allowedPages = []) {
   if (!fullAccessRoles.includes(role) && allowedPages.length) {
     return navItems.filter((item) => pageIsAllowed(item.href, allowedPages));
   }
+  if (role === "Admin") {
+    return navItems.filter((item) => item.href !== "/payment-settings");
+  }
   return navItems;
 }
 
