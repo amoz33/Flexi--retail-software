@@ -3,9 +3,9 @@
 import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Store } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getApiBaseUrl } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 
 function getHomeForRole(role) {
   if (role === "Cashier") return "/cashier";
@@ -53,7 +53,7 @@ export default function LoginPage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+      const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
         method: "POST",
         headers: {
           "Accept": "application/json",

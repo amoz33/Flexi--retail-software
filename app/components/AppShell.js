@@ -5,10 +5,10 @@ import { ArrowLeft, ClipboardList, Home, LogOut, ReceiptText, ScanLine, Shopping
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
+import { getApiBaseUrl } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
 const activeOutletStorageKey = "retail-active-outlet";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 const cashierAllowedRoutes = [
   "/cashier",
   "/front-desk",
@@ -133,7 +133,7 @@ export default function AppShell({ children }) {
           return;
         }
 
-        const response = await fetch(`${apiBaseUrl}/auth/me`, {
+        const response = await fetch(`${getApiBaseUrl()}/auth/me`, {
           headers: {
             "Accept": "application/json",
             "Authorization": `${parsedSession.tokenType || "Bearer"} ${parsedSession.token}`

@@ -5,10 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import StatCard from "../components/StatCard";
 import { formatNaira } from "../data";
-import { apiFetch } from "../lib/api";
+import { apiFetch, getApiBaseUrl } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 const fullAccessRoles = ["Admin", "Developer"];
 
 function getStoredSession() {
@@ -89,7 +88,7 @@ export default function StaffRecordsPage() {
 
     async function loadStaff() {
       try {
-        const response = await fetch(`${apiBaseUrl}/staff`, {
+        const response = await fetch(`${getApiBaseUrl()}/staff`, {
           headers: {
             "Accept": "application/json",
             "Authorization": `${session.tokenType || "Bearer"} ${session.token}`

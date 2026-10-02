@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BadgeDollarSign, BarChart3, Building2, Boxes, ChevronLeft, ChevronRight, ClipboardList, CreditCard, Crown, FileBarChart, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
+import { BadgeDollarSign, BarChart3, Boxes, Building2, ChevronLeft, ChevronRight, ClipboardList, CreditCard, Crown, FileBarChart, Gem, HandCoins, Handshake, Home, Menu, MessageSquareText, Printer, Receipt, Recycle, ScanLine, ShoppingBag, Sparkles, Store, Truck, Users, X } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home, group: "Overview" },

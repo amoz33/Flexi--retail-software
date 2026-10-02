@@ -3,9 +3,9 @@
 import { Building2, Copy, KeyRound, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
+import { getApiBaseUrl } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 
 const emptyForm = {
   subdomain: "",
@@ -53,7 +53,7 @@ export default function TenantsPage() {
       setMessage("");
 
       try {
-        const response = await fetch(`${apiBaseUrl}/tenants`, {
+        const response = await fetch(`${getApiBaseUrl()}/tenants`, {
           headers: {
             "Accept": "application/json",
             "Authorization": `${session.tokenType || "Bearer"} ${session.token}`
@@ -85,7 +85,7 @@ export default function TenantsPage() {
     setCreatedTenant(null);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/tenants`, {
+      const response = await fetch(`${getApiBaseUrl()}/tenants`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({

@@ -4,9 +4,9 @@ import Link from "next/link";
 import { Ban, BarChart3, CheckCircle2, Copy, Eye, KeyRound, Save, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
+import { getApiBaseUrl } from "../lib/api";
 
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001/api";
 
 const roles = ["Admin", "Manager", "Cashier", "Inventory", "Staff"];
 const fullAccessRoles = ["Admin", "Developer"];
@@ -83,7 +83,7 @@ export default function StaffPage() {
       setMessage("");
 
       try {
-        const response = await fetch(`${apiBaseUrl}/staff`, {
+        const response = await fetch(`${getApiBaseUrl()}/staff`, {
           headers: {
             "Accept": "application/json",
             "Authorization": `${session.tokenType || "Bearer"} ${session.token}`
@@ -138,7 +138,7 @@ export default function StaffPage() {
     setGeneratedPassword("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/staff`, {
+      const response = await fetch(`${getApiBaseUrl()}/staff`, {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify(form)
@@ -168,7 +168,7 @@ export default function StaffPage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/staff/${selectedStaff.id}`, {
+      const response = await fetch(`${getApiBaseUrl()}/staff/${selectedStaff.id}`, {
         method: "PUT",
         headers: authHeaders,
         body: JSON.stringify({
@@ -201,7 +201,7 @@ export default function StaffPage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/staff/${person.id}/status`, {
+      const response = await fetch(`${getApiBaseUrl()}/staff/${person.id}/status`, {
         method: "PATCH",
         headers: authHeaders,
         body: JSON.stringify({ is_active: !person.is_active })
@@ -230,7 +230,7 @@ export default function StaffPage() {
     setGeneratedPassword("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/staff/${person.id}/reset-password`, {
+      const response = await fetch(`${getApiBaseUrl()}/staff/${person.id}/reset-password`, {
         method: "POST",
         headers: authHeaders
       });

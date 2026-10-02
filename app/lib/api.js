@@ -1,5 +1,11 @@
 const sessionStorageKey = "retail-auth-session";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001/api";
+
+export function getApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/api`;
+  }
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001/api";
+}
 
 export function getSession() {
   if (typeof window === "undefined") return null;
@@ -67,7 +73,7 @@ export async function apiFetch(path, options = {}) {
       : (options.body && typeof options.body !== "string" ? JSON.stringify(options.body) : options.body)
   };
 
-  const response = await fetch(`${apiBaseUrl}${requestPath}`, fetchOptions);
+  const response = await fetch(`${getApiBaseUrl()}${requestPath}`, fetchOptions);
 
   if (!response.ok) {
     let message = "Request failed.";
