@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\TenantNginxSync;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -74,6 +75,12 @@ class TenantController extends Controller
             return response()->json(['message' => $result['error']], 422);
         }
 
-        return response()->json(['tenant' => $result], 201);
+        // Refresh the nginx allow-list so the new subdomain starts resolving.
+        $routingSynced = app(TenantNginxSync::class)->sync();
+
+        return response()->json([
+            'tenant' => $result,
+            'routing_synced' => $routingSynced,
+        ], 201);
     }
 }
